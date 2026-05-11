@@ -1,17 +1,18 @@
-from flask import Flask, jsonify, request, send_from_directory, abort, redirect
+from flask import Flask, jsonify, request, send_from_directory, abort
 from pathlib import Path
 from typing import Optional
-from urllib.parse import quote
 import pandas as pd
 import networkx as nx
 import numpy as np
 import os
 import datetime
 import logging
+import tempfile
 import shutil
 
 from Tao_nguoi_dung_va_do_thi import SocialNetworkGenerator
-from sir_models import PureSIRSimulation, SIRDynamicImmunization
+from Mo_phong_SIR import PureSIRSimulation
+from Vong_lap_co_lap_va_SIR import SIRDynamicImmunization
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -32,12 +33,6 @@ _cached_payload = None
 _cached_output = None
 
 
-def sir_view_url(model: str, results_dir: str) -> str:
-    """URL trang mô phỏng SIR (đường dẫn POSIX, đã encode)."""
-    path = quote(str(Path(results_dir).as_posix()), safe='')
-    return f'/simulation?model={model}&output_dir={path}'
-
-
 def get_latest_output_dir() -> Optional[Path]:
     env_path = os.getenv('MO_PHONG_OUTPUT_DIR')
     if env_path:
@@ -45,7 +40,7 @@ def get_latest_output_dir() -> Optional[Path]:
         if output_dir.exists() and output_dir.is_dir():
             return output_dir
 
-    candidates = [p for p in BASE_DIR.glob('output_*') if p.is_dir() and p.name != 'output_archive']
+    candidates = [p for p in BASE_DIR.glob('output_*') if p.is_dir()]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
@@ -75,10 +70,6 @@ def load_output_data(output_dir: Optional[str] = None):
     if 'user1_id' in relationships.columns and 'user2_id' in relationships.columns:
         # Generated data format
         relationships = relationships.rename(columns={'user1_id': 'source', 'user2_id': 'target'})
-    
-    # Normalize metrics columns
-    if 'user_id' in metrics.columns:
-        metrics = metrics.rename(columns={'user_id': 'id'})
 
     return folder, users, relationships, metrics
 
@@ -109,33 +100,36 @@ def compute_risk(row):
 
 def build_node_payload(users, metrics, graph, positions):
     payload = []
-    # Ensure both dataframes have 'id' column for merging
-    merge_key = 'id'
     
-    # Check if merge key exists in both dataframes
-    if merge_key not in users.columns:
-        logger.warning(f'Missing {merge_key} in users dataframe. Columns: {list(users.columns)}')
-        return payload
+    # Rename metrics columns to standardized names
+    metrics = metrics.rename(columns={
+        'user_id': 'id',
+        'betweenness_centrality': 'betweenness',
+        'degree_centrality': 'degree',
+        'eigenvector_centrality': 'eigenvector'
+    })
     
-    if merge_key not in metrics.columns:
-        logger.warning(f'Missing {merge_key} in metrics dataframe. Columns: {list(metrics.columns)}')
-        # If metrics doesn't have id, try to match by index or create it
-        if len(metrics) == len(users):
-            metrics = metrics.copy()
-            metrics['id'] = users['id'].values
-        else:
-            return payload
+    # Rename users columns if needed
+    if 'user_id' in users.columns:
+        users = users.rename(columns={'user_id': 'id'})
     
-    info = users.merge(metrics, on=merge_key, how='left')
-    if 'betweenness' in info.columns:
-        info = info.sort_values('betweenness', ascending=False)
-    elif 'betweenness_centrality' in info.columns:
-        info = info.sort_values('betweenness_centrality', ascending=False)
+    # Standardize column names
+    if 'followers_count' in users.columns:
+        users = users.rename(columns={'followers_count': 'followers'})
+    if 'posts_count' in users.columns:
+        users = users.rename(columns={'posts_count': 'posts'})
+    if 'shares_count' in users.columns:
+        users = users.rename(columns={'shares_count': 'shares'})
+    if 'comments_count' in users.columns:
+        users = users.rename(columns={'comments_count': 'comments'})
+    
+    # Merge users and metrics
+    info = users.merge(metrics, on='id', how='left')
+    info = info.sort_values('betweenness', ascending=False)
     degree_map = dict(graph.degree())
 
-
     for _, row in info.iterrows():
-        node_id = int(row[merge_key])
+        node_id = int(row['id'])
         pos = positions.get(node_id, (0.0, 0.0))
 
         # Handle different risk calculation methods
@@ -143,15 +137,10 @@ def build_node_payload(users, metrics, graph, positions):
             risk = str(row['risk'])
         else:
             # Calculate risk from metrics for generated data
-            # Handle both centrality metrics (e.g., betweenness_centrality) and simple metrics (e.g., betweenness)
-            betweenness = row.get('betweenness_centrality', row.get('betweenness', 0))
-            degree = row.get('degree_centrality', row.get('degree', 0))
-            eigenvector = row.get('eigenvector_centrality', row.get('eigenvector', 0))
-            
             score = (
-                betweenness * 1800
-                + degree * 450
-                + eigenvector * 900
+                row.get('betweenness', 0) * 1800
+                + row.get('degree', 0) * 450
+                + row.get('eigenvector', 0) * 900
             )
             if score >= 180:
                 risk = 'High'
@@ -162,41 +151,21 @@ def build_node_payload(users, metrics, graph, positions):
             else:
                 risk = 'Unknown'
 
-        # Get the metric column names (may be centrality or simple names)
-        bet_col = 'betweenness_centrality' if 'betweenness_centrality' in info.columns else 'betweenness'
-        deg_col = 'degree_centrality' if 'degree_centrality' in info.columns else 'degree'
-        eig_col = 'eigenvector_centrality' if 'eigenvector_centrality' in info.columns else 'eigenvector'
-        
-        betweenness_val = float(row.get(bet_col, row.get('betweenness', 0)))
-        degree_val = float(row.get(deg_col, row.get('degree', 0)))
-        eigenvector_val = float(row.get(eig_col, row.get('eigenvector', 0)))
-
         followers = int(row.get('followers', 0))
         posts = int(row.get('posts', 0))
         shares = int(row.get('shares', max(0, min(9999, followers * 0.15 + posts * 2))))
         comments = int(row.get('comments', max(0, min(9999, followers * 0.08 + posts * 1.1))))
         radius = max(10, min(28, 10 + int(degree_map.get(node_id, 0) * 1.5)))
 
-        # Calculate role based on metrics
-        bet_quantile = info[bet_col].quantile(0.75) if bet_col in info.columns else 0
-        deg_quantile = info[deg_col].quantile(0.7) if deg_col in info.columns else 0
-        
-        if betweenness_val >= bet_quantile:
-            role = 'Nút trung gian'
-        elif degree_val >= deg_quantile:
-            role = 'Nút lan truyền'
-        else:
-            role = 'Quan sát viên'
-
         payload.append({
             'id': node_id,
             'name': str(row.get('name', f'User {node_id}')),
-            'role': role,
-            'degree': degree_val,
-            'betweenness': betweenness_val,
-            'eigenvector': eigenvector_val,
+            'role': 'Nút trung gian' if row.get('betweenness', 0) >= info['betweenness'].quantile(0.75) else 'Nút lan truyền' if row.get('degree', 0) >= info['degree'].quantile(0.7) else 'Quan sát viên',
+            'degree': float(row.get('degree', 0)),
+            'betweenness': float(row.get('betweenness', 0)),
+            'eigenvector': float(row.get('eigenvector', 0)),
             'risk': risk,
-            'risk_score': int(100 * min(1.0, betweenness_val * 3 + degree_val * 2 + eigenvector_val * 2)),
+            'risk_score': int(100 * min(1.0, row.get('betweenness', 0) * 3 + row.get('degree', 0) * 2 + row.get('eigenvector', 0) * 2)),
             'cluster': None,
             'followers': followers,
             'posts': posts,
@@ -212,7 +181,12 @@ def build_node_payload(users, metrics, graph, positions):
 
 def build_graph_payload():
     global _cached_graph, _cached_payload, _cached_output
-    folder, users, relationships, metrics = load_output_data()
+    try:
+        folder, users, relationships, metrics = load_output_data()
+    except FileNotFoundError as e:
+        logger.error(f'Data not found: {e}')
+        raise Exception(f'Không tìm thấy dữ liệu: {str(e)}')
+    
     if _cached_output == folder and _cached_payload is not None:
         return _cached_payload
 
@@ -266,16 +240,6 @@ def index():
     return send_from_directory(str(BASE_DIR), 'index.html')
 
 
-@app.route('/simulation')
-def simulation_page():
-    return send_from_directory(str(BASE_DIR), 'simulation.html')
-
-
-@app.route('/results')
-def results():
-    return redirect('/simulation', code=302)
-
-
 @app.route('/<path:path>')
 def static_files(path):
     return send_from_directory(str(BASE_DIR), path)
@@ -283,217 +247,124 @@ def static_files(path):
 
 @app.route('/api/summary')
 def api_summary():
-    payload = build_graph_payload()
-    return jsonify({
-        'nodes': payload['nodes'],
-        'edges': payload['edges'],
-        'interaction_type': 'Share/Comment',
-        'data_date': payload['data_date'],
-        'status': payload['status'],
-        'version': payload['version'],
-        'timestamp': payload['timestamp'],
-        'output_folder': payload['output_folder'],
-    })
+    try:
+        payload = build_graph_payload()
+        return jsonify({
+            'nodes': payload['nodes'],
+            'edges': payload['edges'],
+            'interaction_type': 'Share/Comment',
+            'data_date': payload['data_date'],
+            'status': payload['status'],
+            'version': payload['version'],
+            'timestamp': payload['timestamp'],
+            'output_folder': payload['output_folder'],
+        })
+    except Exception as e:
+        logger.error(f'Error in api_summary: {e}')
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/graph')
 def api_graph():
-    payload = build_graph_payload()
-    return jsonify(payload)
+    try:
+        payload = build_graph_payload()
+        return jsonify(payload)
+    except Exception as e:
+        logger.error(f'Error in api_graph: {e}')
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/top-nodes')
 def api_top_nodes():
-    payload = build_graph_payload()
-    return jsonify({'top_nodes': payload['top_nodes']})
+    try:
+        payload = build_graph_payload()
+        return jsonify({'top_nodes': payload['top_nodes']})
+    except Exception as e:
+        logger.error(f'Error in api_top_nodes: {e}')
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/node/<int:node_id>')
 def api_node(node_id):
-    payload = build_graph_payload()
-    node = next((item for item in payload['nodes_data'] if item['id'] == node_id), None)
-    if node is None:
-        abort(404, description='Node không tồn tại')
-    return jsonify(node)
+    try:
+        payload = build_graph_payload()
+        node = next((item for item in payload['nodes_data'] if item['id'] == node_id), None)
+        if node is None:
+            abort(404, description='Node không tồn tại')
+        return jsonify(node)
+    except Exception as e:
+        logger.error(f'Error in api_node: {e}')
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/clusters')
 def api_clusters():
-    payload = build_graph_payload()
-    return jsonify({'clusters': payload['clusters']})
-
-
-@app.route('/api/sir-results')
-def api_sir_results():
-    """Fetch SIR simulation results"""
-    output_dir = request.args.get('output_dir')
-    model = request.args.get('model', 'pure')
-
-    if not output_dir or not Path(output_dir).exists():
-        return jsonify({'error': 'Thư mục output không tồn tại'}), 400
-
     try:
-        output_path = Path(output_dir)
-        
-        # Determine which folder contains the results
-        sir_subfolder = output_path / ('Pure_SIR' if model == 'pure' else 'SIR_dynamic_immunization')
-        
-        if not sir_subfolder.exists():
-            sir_subfolder = output_path
-        
-        history_file = sir_subfolder / 'sir_history.csv'
-        
-        if not history_file.exists():
-            return jsonify({'error': f'File kết quả không tìm thấy: {history_file}'}), 404
+        payload = build_graph_payload()
+        return jsonify({'clusters': payload['clusters']})
+    except Exception as e:
+        logger.error(f'Error in api_clusters: {e}')
+        return jsonify({'error': str(e)}), 500
 
-        # Load history data
-        history_df = pd.read_csv(history_file)
-        history = history_df.to_dict(orient='records')
 
-        # Calculate statistics
-        peak_day = int(history_df['I'].idxmax())
-        peak_infected = int(history_df['I'].max())
-        final_day = len(history) - 1
+@app.route('/api/run-generator', methods=['POST'])
+def api_run_generator():
+    try:
+        payload = request.get_json() or {}
+        num_users = int(payload.get('num_users', 500))
+        relationship_prob = float(payload.get('relationship_prob', 0.025))
+        seed = int(payload.get('seed', 42))
+
+        generator = SocialNetworkGenerator(num_users=num_users, seed=seed)
+        metrics = generator.run(num_users=num_users, relationship_prob=relationship_prob)
 
         return jsonify({
-            'model': model,
-            'output_dir': output_dir,
-            'history': history,
-            'statistics': {
-                'peak_day': peak_day,
-                'peak_infected': peak_infected,
-                'final_day': final_day,
-            }
+            'output_folder': generator.output_dir,
+            'nodes': num_users,
+            'edges': len(generator.relationships),
+            'top_nodes': metrics.head(10).to_dict(orient='records'),
         })
-
     except Exception as e:
-        logger.error(f'Error loading SIR results: {e}')
-        return jsonify({'error': f'Lỗi tải dữ liệu: {str(e)}'}), 500
+        logger.error(f'Error in api_run_generator: {e}')
+        return jsonify({'error': f'Lỗi tạo dữ liệu: {str(e)}'}), 500
 
 
-@app.route('/api/simulate-sir', methods=['POST'])
-def api_simulate_sir():
-    """Alias for /api/run-simulate for backward compatibility"""
-    payload = request.get_json() or {}
-    model = payload.get('model', 'pure')
-    transmission_rate = float(payload.get('transmission_rate', 0.3))
-    recovery_rate = float(payload.get('recovery_rate', 0.02))
-    days = int(payload.get('days', 300))
-    seed = int(payload.get('seed', 42))
-    top_k = int(payload.get('top_k', 10))
-    strategy = str(payload.get('strategy', 'betweenness'))
-    
-    # Get the latest output directory if not specified
-    output_dir = payload.get('output_dir')
-    if not output_dir:
-        output_dir = get_latest_output_dir()
-    
+@app.route('/api/run-simulate', methods=['POST'])
+def api_run_simulate():
     try:
+        payload = request.get_json() or {}
+        model = payload.get('model', 'pure')
+        output_dir = payload.get('output_dir')
+        transmission_rate = float(payload.get('transmission_rate', 0.3))
+        recovery_rate = float(payload.get('recovery_rate', 0.02))
+        days = int(payload.get('days', 300))
+
         if model == 'dynamic':
-            sim = SIRDynamicImmunization(output_dir=output_dir, top_k=top_k, strategy=strategy)
-            sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days, seed=seed)
+            sim = SIRDynamicImmunization(output_dir=output_dir)
+            sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days)
             peak_day, peak_I, final_day = sim.get_statistics()
-            
-            # Load history
-            history_file = Path(sim.results_dir) / 'sir_history.csv'
-            history_df = pd.read_csv(history_file)
-            history = history_df.to_dict(orient='records')
-            
             return jsonify({
                 'model': 'dynamic',
                 'output_directory': sim.results_dir,
                 'peak_day': peak_day,
                 'peak_infected': peak_I,
                 'final_day': final_day,
-                'top_k': top_k,
-                'strategy': strategy,
-                'history': history,
-                'redirect_url': sir_view_url('dynamic', sim.results_dir),
             })
-        else:
-            sim = PureSIRSimulation(output_dir=output_dir)
-            sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days, seed=seed)
-            peak_day, peak_I, final_day = sim.get_statistics()
-            sim.save()
-            
-            # Load history
-            history_file = Path(sim.results_dir) / 'sir_history.csv'
-            history_df = pd.read_csv(history_file)
-            history = history_df.to_dict(orient='records')
-            
-            return jsonify({
-                'model': 'pure',
-                'output_directory': sim.results_dir,
-                'peak_day': peak_day,
-                'peak_infected': peak_I,
-                'final_day': final_day,
-                'seed': seed,
-                'history': history,
-                'redirect_url': sir_view_url('pure', sim.results_dir),
-            })
-    except Exception as e:
-        logger.error(f'Error in simulation: {e}')
-        return jsonify({'error': f'Lỗi mô phỏng: {str(e)}'}), 500
 
-
-@app.route('/api/run-generator', methods=['POST'])
-def api_run_generator():
-    payload = request.get_json() or {}
-    num_users = int(payload.get('num_users', 500))
-    relationship_prob = float(payload.get('relationship_prob', 0.025))
-    seed = int(payload.get('seed', 42))
-
-    generator = SocialNetworkGenerator(num_users=num_users, seed=seed)
-    metrics = generator.run(num_users=num_users, relationship_prob=relationship_prob)
-
-    return jsonify({
-        'output_folder': generator.output_dir,
-        'nodes': num_users,
-        'edges': len(generator.relationships),
-        'top_nodes': metrics.head(10).to_dict(orient='records'),
-    })
-
-
-@app.route('/api/run-simulate', methods=['POST'])
-def api_run_simulate():
-    payload = request.get_json() or {}
-    model = payload.get('model', 'pure')
-    output_dir = payload.get('output_dir')
-    transmission_rate = float(payload.get('transmission_rate', 0.3))
-    recovery_rate = float(payload.get('recovery_rate', 0.02))
-    days = int(payload.get('days', 300))
-    seed = int(payload.get('seed', 42))
-    top_k = int(payload.get('top_k', 10))
-    strategy = str(payload.get('strategy', 'betweenness'))
-
-    if model == 'dynamic':
-        sim = SIRDynamicImmunization(output_dir=output_dir, top_k=top_k, strategy=strategy)
-        sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days, seed=seed)
+        sim = PureSIRSimulation(output_dir=output_dir)
+        sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days)
         peak_day, peak_I, final_day = sim.get_statistics()
+        sim.save()
         return jsonify({
-            'model': 'dynamic',
+            'model': 'pure',
             'output_directory': sim.results_dir,
             'peak_day': peak_day,
             'peak_infected': peak_I,
             'final_day': final_day,
-            'top_k': top_k,
-            'strategy': strategy,
-            'redirect_url': sir_view_url('dynamic', sim.results_dir),
         })
-
-    sim = PureSIRSimulation(output_dir=output_dir)
-    sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days, seed=seed)
-    peak_day, peak_I, final_day = sim.get_statistics()
-    sim.save()
-    return jsonify({
-        'model': 'pure',
-        'output_directory': sim.results_dir,
-        'peak_day': peak_day,
-        'peak_infected': peak_I,
-        'final_day': final_day,
-        'seed': seed,
-        'redirect_url': sir_view_url('pure', sim.results_dir),
-    })
+    except Exception as e:
+        logger.error(f'Error in api_run_simulate: {e}')
+        return jsonify({'error': f'Lỗi mô phỏng: {str(e)}'}), 500
 
 
 @app.route('/api/upload-data', methods=['POST'])
@@ -518,8 +389,9 @@ def api_upload_data():
         if missing_cols:
             return jsonify({'error': f'Thiếu các cột bắt buộc: {", ".join(missing_cols)}'}), 400
 
-        # Write directly to project output folder to avoid temp-folder duplication
-        output_dir = BASE_DIR / f"output_uploaded_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # Create temporary directory for processing
+        temp_dir = Path(tempfile.mkdtemp(prefix='upload_'))
+        output_dir = temp_dir / f"uploaded_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         # Process the uploaded data
         generator = SocialNetworkGenerator(num_users=len(df), seed=42)
@@ -561,13 +433,23 @@ def api_upload_data():
         adj_matrix = nx.to_pandas_adjacency(G, dtype=int)
         adj_matrix.to_csv(output_dir / 'adjacency_matrix.csv')
 
-        # Calculate metrics
+        # Calculate metrics - compute centrality measures once
+        degree_map = dict(G.degree())
+        betweenness_map = nx.betweenness_centrality(G)
+        
+        # Handle eigenvector centrality with fallback
+        try:
+            eigenvector_map = nx.eigenvector_centrality(G, max_iter=1000)
+        except Exception as e:
+            logger.warning(f'Eigenvector centrality calculation failed: {e}, using fallback')
+            eigenvector_map = {node: 0.0 for node in G.nodes()}
+        
         metrics_data = []
         for user in generator.users:
             node_id = user['id']
-            degree = G.degree[node_id] if node_id in G else 0
-            betweenness = nx.betweenness_centrality(G).get(node_id, 0)
-            eigenvector = nx.eigenvector_centrality(G, max_iter=1000).get(node_id, 0)
+            degree = degree_map.get(node_id, 0)
+            betweenness = betweenness_map.get(node_id, 0)
+            eigenvector = eigenvector_map.get(node_id, 0)
 
             metrics_data.append({
                 'id': node_id,
@@ -581,13 +463,23 @@ def api_upload_data():
         metrics_df = pd.DataFrame(metrics_data)
         metrics_df.to_csv(output_dir / 'metrics.csv', index=False)
 
+        # Copy to main output directory for dashboard
+        main_output_dir = BASE_DIR / f"output_uploaded_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        shutil.copytree(output_dir, main_output_dir)
+
         return jsonify({
-            'output_folder': str(output_dir),
+            'output_folder': str(main_output_dir),
             'nodes': len(generator.users),
             'edges': len(generator.relationships),
             'message': f'Upload và xử lý thành công {len(generator.users)} người dùng từ file CSV'
         })
 
+    except pd.errors.ParserError as e:
+        logger.error(f'CSV parsing error: {e}')
+        return jsonify({'error': f'Lỗi định dạng CSV: {str(e)}'}), 400
+    except ValueError as e:
+        logger.error(f'Value error processing uploaded file: {e}')
+        return jsonify({'error': f'Lỗi dữ liệu không hợp lệ: {str(e)}'}), 400
     except Exception as e:
         logger.error(f'Error processing uploaded file: {e}')
         return jsonify({'error': f'Lỗi xử lý file: {str(e)}'}), 500
@@ -597,44 +489,6 @@ def api_upload_data():
 def not_found(error):
     return jsonify({'error': str(error)}), 404
 
-
-@app.route('/api/health')
-def api_health():
-    latest = get_latest_output_dir()
-    return jsonify({
-        'status': 'ok',
-        'latest_output': str(latest) if latest else None,
-        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-    })
-
-
-@app.route('/api/cleanup-outputs', methods=['POST'])
-def api_cleanup_outputs():
-    payload = request.get_json() or {}
-    keep_latest = max(1, int(payload.get('keep_latest', 3)))
-    include_uploaded = bool(payload.get('include_uploaded', True))
-
-    output_dirs = [p for p in BASE_DIR.glob('output_*') if p.is_dir() and p.name != 'output_archive']
-    if not include_uploaded:
-        output_dirs = [p for p in output_dirs if not p.name.startswith('output_uploaded_')]
-
-    output_dirs = sorted(output_dirs, key=lambda p: p.stat().st_mtime, reverse=True)
-    removable = output_dirs[keep_latest:]
-
-    removed = []
-    for folder in removable:
-        try:
-            shutil.rmtree(folder)
-            removed.append(folder.name)
-        except Exception as exc:
-            logger.warning('Không thể xóa %s: %s', folder, exc)
-
-    return jsonify({
-        'removed_count': len(removed),
-        'removed': removed,
-        'kept': [p.name for p in output_dirs[:keep_latest]],
-    })
-
-
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
