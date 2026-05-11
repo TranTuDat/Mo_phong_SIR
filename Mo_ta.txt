@@ -1,0 +1,444 @@
+1. Tổng thể bố cục giao diện
+Trang web được thiết kế theo kiểu dashboard (bảng điều khiển) hiện đại, chia thành 3 khu vực chính:
+🔹 (1) Thanh điều hướng bên trái (Sidebar)
+•	Nền màu xanh đậm/navy, tạo cảm giác chuyên nghiệp, an toàn (phù hợp với hệ thống phân tích). 
+•	Logo + tên hệ thống ở trên cùng: 
+o	“InfoOps Analyzer” 
+o	Subtitle: “Công cụ phân tích mạng xã hội” 
+•	Các mục menu được xếp theo chiều dọc, có icon minh họa: 
+o	Tổng quan (đang được chọn – highlight xanh sáng) 
+o	Nhập dữ liệu 
+o	Phân tích mạng 
+o	Nút quan trọng 
+o	Cụm cộng đồng 
+o	Điểm nguy cơ 
+o	Đề xuất can thiệp 
+o	Báo cáo 
+👉 Mục đang chọn có nền xanh sáng → giúp người dùng biết mình đang ở đâu.
+________________________________________
+🔹 (2) Thanh trên cùng (Topbar)
+•	Nền sáng (trắng/xám nhạt), tối giản. 
+•	Các nút chức năng nằm bên phải: 
+o	Hướng dẫn 
+o	Báo cáo 
+o	Xuất dữ liệu 
+o	Cài đặt (icon bánh răng) 
+👉 Thiết kế gọn, không chiếm nhiều không gian.
+________________________________________
+🔹 (3) Khu vực nội dung chính (Main Dashboard)
+Chiếm phần lớn màn hình, chia thành nhiều card (thẻ) rõ ràng.
+________________________________________
+📊 2. Hàng thống kê tổng quan (Top Metrics Cards)
+Gồm 4 thẻ ngang:
+1.	Tổng tài khoản 
+2.	Tổng quan hệ 
+3.	Tương tác (share/comment) 
+4.	Tài khoản nguy cơ cao 
+Đặc điểm UI:
+•	Mỗi card có: 
+o	Icon minh họa (màu khác nhau: xanh, xanh lá, cam, đỏ) 
+o	Số liệu lớn (font đậm, dễ nhìn) 
+o	Dòng % thay đổi (màu xanh lá → tăng trưởng) 
+•	Bo góc nhẹ, nền trắng, có shadow nhẹ → phong cách Material/Modern UI 
+________________________________________
+🌐 3. Khu vực trung tâm – Bản đồ mạng (Network Graph)
+📍 Vị trí:
+•	Nằm bên trái trung tâm, chiếm diện tích lớn nhất. 
+📍 Thành phần:
+•	Tiêu đề: “Bản đồ mạng tương tác” 
+•	Bộ lọc: 
+o	Dropdown “Hiển thị nhãn” 
+o	Nút “Làm mới” 
+•	Legend (chú thích màu): 
+o	🔴 Nguy cơ cao 
+o	🟠 Nguy cơ trung bình 
+o	🔵 Nguy cơ thấp 
+o	⚪ Chưa xác định 
+📍 Đồ thị:
+•	Dạng force-directed graph (mạng lưới) 
+•	Các node: 
+o	Hình tròn 
+o	Kích thước khác nhau (node lớn = quan trọng hơn) 
+•	Các cạnh (edge): 
+o	Đường nối giữa các node 
+•	Màu sắc phân cụm rõ ràng: 
+o	Đỏ, xanh, cam, xám 
+👉 Có các nút điều khiển zoom (+ / -) bên phải đồ thị.
+________________________________________
+📋 4. Bảng “Top 10 nút quan trọng”
+📍 Vị trí:
+•	Bên phải đồ thị mạng. 
+📍 Nội dung:
+•	Bảng dạng list, gồm các cột: 
+o	STT (#) 
+o	Tài khoản 
+o	Vai trò 
+o	Degree 
+o	Betweenness 
+o	Eigenvector 
+o	Điểm nguy cơ 
+📍 UI:
+•	Dữ liệu căn chỉnh gọn gàng theo cột 
+•	Điểm nguy cơ: 
+o	Hiển thị dạng badge màu 
+o	Màu đỏ → nguy hiểm cao 
+•	Font rõ ràng, dễ scan nhanh 
+________________________________________
+👤 5. Thông tin tài khoản được chọn
+📍 Vị trí:
+•	Bên dưới đồ thị mạng (trái) 
+📍 Nội dung:
+•	Avatar (icon người) 
+•	Tên user + trạng thái nguy cơ (badge đỏ) 
+•	Các chỉ số: 
+o	Người theo dõi 
+o	Bài viết 
+o	Share 
+o	Comment 
+•	Vai trò: 
+o	Mô tả ngắn (vd: nút trung gian, lan truyền mạnh) 
+•	Mô tả: 
+o	Text giải thích hành vi 
+👉 Thiết kế giống profile card thu nhỏ
+________________________________________
+🧠 6. Cụm cộng đồng phát hiện được
+📍 Vị trí:
+•	Góc dưới bên phải (trái của khối đề xuất) 
+📍 Nội dung:
+•	Danh sách các cụm: 
+o	Cụm 1 (Đỏ) 
+o	Cụm 2 (Xanh dương) 
+o	... 
+•	Số lượng tài khoản trong mỗi cụm 
+•	Tổng số cụm 
+👉 Có màu sắc tương ứng với đồ thị → dễ liên kết trực quan
+________________________________________
+🎯 7. Đề xuất can thiệp
+📍 Vị trí:
+•	Góc dưới bên phải 
+📍 Nội dung:
+•	Danh sách hành động đề xuất 
+•	Mỗi dòng gồm: 
+o	Icon (🎯, 👤, 📈...) 
+o	Nội dung hành động 
+o	Nhãn ưu tiên (Ưu tiên 1, 2, 3, 4) 
+📍 UI:
+•	Thiết kế dạng checklist / recommendation panel 
+•	Nhấn mạnh bằng màu (đỏ/cam/xanh) 
+________________________________________
+📦 8. Khối thông tin dữ liệu (Sidebar dưới)
+📍 Vị trí:
+•	Góc dưới bên trái sidebar 
+📍 Nội dung:
+•	Tổng số: 
+o	Node 
+o	Edge 
+o	Loại tương tác 
+o	Ngày dữ liệu 
+•	Trạng thái: 
+o	“Dữ liệu đã sẵn sàng” (màu xanh) 
+________________________________________
+⚙️ 9. Footer (chân trang)
+•	Phiên bản hệ thống: 1.0.0 
+•	Timestamp (thời gian cập nhật) 
+________________________________________
+🎨 10. Đánh giá phong cách thiết kế
+✅ Ưu điểm:
+•	Rất rõ ràng, phân vùng tốt (card-based layout) 
+•	Màu sắc có ý nghĩa (risk-based color coding) 
+•	Trực quan hóa mạnh (network graph) 
+•	Dễ mở rộng (modular UI) 
+🎯 Phong cách:
+•	Dashboard phân tích dữ liệu 
+•	Kết hợp: 
+o	Data Visualization 
+o	Social Network Analysis UI 
+o	Risk Monitoring System 
+________________________________________
+🧾 Tóm tắt nhanh
+Giao diện này là một dashboard phân tích mạng xã hội chuyên sâu, gồm:
+•	Sidebar điều hướng 
+•	Topbar chức năng 
+•	Các thẻ thống kê nhanh 
+•	Đồ thị mạng trung tâm 
+•	Bảng dữ liệu + phân tích 
+•	Các khối hỗ trợ quyết định (community + recommendation) 
+________________________________________
+Nếu bạn muốn, mình có thể:
+•	Viết lại phần này thành mô tả chuẩn để đưa vào báo cáo/khóa luận 
+•	Hoặc chuyển thành sơ đồ wireframe UI cho bạn 👍 
+mô tả lại nó thật chi tiết nhất có thể cho tôi
+Dưới đây là bản mô tả cực kỳ chi tiết, mang tính “giải phẫu giao diện” – bạn có thể dùng gần như trực tiếp cho khóa luận hoặc tài liệu thiết kế hệ thống.
+________________________________________
+🧩 1. CẤU TRÚC TỔNG THỂ GIAO DIỆN
+Trang web được thiết kế theo mô hình Dashboard phân tích dữ liệu đa lớp, bố cục dạng:
+| Sidebar |        Main Content (Dashboard)        |
+|         |  Topbar                              |
+|         |  Metrics Cards                       |
+|         |  Network Graph + Table               |
+|         |  Detail Panels                       |
+🔹 Đặc điểm chung:
+•	Layout dạng 2 cột cố định 
+•	Sidebar cố định bên trái 
+•	Nội dung bên phải dạng grid linh hoạt 
+•	Thiết kế theo hướng: 
+o	Data-centric 
+o	Visualization-first 
+o	Decision-support system 
+________________________________________
+🧭 2. SIDEBAR (THANH ĐIỀU HƯỚNG TRÁI)
+📌 2.1. Tổng quan thiết kế
+•	Chiếm khoảng 18–22% chiều rộng màn hình 
+•	Nền: xanh navy đậm (#0B1F3A gần đúng) 
+•	Font chữ: trắng / xám nhạt 
+•	Phân cấp rõ ràng bằng: 
+o	Icon 
+o	Khoảng cách dòng 
+o	Highlight trạng thái 
+________________________________________
+📌 2.2. Header sidebar
+•	Icon logo (hình khiên + biểu tượng phân tích) 
+•	Tên hệ thống: 
+o	InfoOps Analyzer (font đậm, lớn) 
+•	Subtitle: 
+o	“Công cụ phân tích mạng xã hội” 
+•	Căn trái hoàn toàn 
+________________________________________
+📌 2.3. Menu điều hướng
+Mỗi item gồm:
+•	Icon (line icon) 
+•	Text label 
+•	Padding đều nhau 
+Danh sách:
+1.	Tổng quan (active) 
+2.	Nhập dữ liệu 
+3.	Phân tích mạng 
+4.	Nút quan trọng 
+5.	Cụm cộng đồng 
+6.	Điểm nguy cơ 
+7.	Đề xuất can thiệp 
+8.	Báo cáo 
+Trạng thái:
+•	Active: 
+o	Nền xanh sáng hơn 
+o	Có thể có bo góc nhẹ 
+•	Hover: 
+o	Đổi màu nền nhẹ (UX chuẩn) 
+________________________________________
+📌 2.4. Khối thông tin dữ liệu (footer sidebar)
+•	Nằm sát đáy sidebar 
+•	Dạng text list: 
+o	Node 
+o	Edge 
+o	Loại tương tác 
+o	Ngày dữ liệu 
+•	Có indicator trạng thái màu xanh: 
+o	“Dữ liệu đã sẵn sàng” 
+•	Vai trò: cung cấp metadata hệ thống 
+________________________________________
+🧱 3. TOPBAR (THANH TRÊN)
+📌 Đặc điểm:
+•	Nền trắng/xám rất nhạt 
+•	Chiều cao nhỏ (~50–60px) 
+•	Không có logo (đã có ở sidebar) 
+📌 Thành phần bên phải:
+•	Hướng dẫn 
+•	Báo cáo 
+•	Xuất dữ liệu 
+•	Icon cài đặt ⚙️ 
+👉 Tất cả là dạng text button + icon nhẹ, không gây rối.
+________________________________________
+📊 4. HÀNG THỐNG KÊ NHANH (METRICS CARDS)
+📌 Bố cục:
+•	4 card nằm ngang 
+•	Chiếm toàn bộ chiều rộng content 
+📌 Mỗi card gồm 3 lớp:
+(1) Icon
+•	Nằm bên trái 
+•	Màu riêng: 
+o	Xanh dương 
+o	Xanh lá 
+o	Cam 
+o	Đỏ 
+(2) Nội dung chính
+•	Số liệu lớn (font rất đậm, nổi bật) 
+•	Là focal point của card 
+(3) Thông tin phụ
+•	% thay đổi 
+•	Màu xanh lá → tăng trưởng 
+________________________________________
+📌 Thiết kế:
+•	Nền trắng 
+•	Bo góc (~8–12px) 
+•	Shadow nhẹ 
+•	Khoảng cách giữa các card đều nhau 
+👉 Phong cách: Material UI / Admin Dashboard
+________________________________________
+🌐 5. BẢN ĐỒ MẠNG (NETWORK GRAPH PANEL)
+📌 Vị trí:
+•	Chiếm khoảng 60–65% chiều ngang 
+•	Nằm bên trái khu vực chính 
+________________________________________
+📌 5.1. Header panel
+•	Tiêu đề: “Bản đồ mạng tương tác” 
+•	Bên phải: 
+o	Nút “Làm mới” 
+o	Dropdown “Hiển thị nhãn” 
+________________________________________
+📌 5.2. Legend (chú thích)
+Hiển thị dạng chấm màu + label:
+Màu	Ý nghĩa
+🔴	Nguy cơ cao
+🟠	Trung bình
+🔵	Thấp
+⚪	Chưa xác định
+👉 Giúp map trực tiếp với đồ thị
+________________________________________
+📌 5.3. Đồ thị mạng
+Cấu trúc:
+•	Node: hình tròn 
+•	Edge: đường nối mảnh 
+Đặc điểm:
+•	Kích thước node: 
+o	Không đồng đều 
+o	Node lớn = quan trọng 
+•	Màu node: 
+o	Theo cụm hoặc mức nguy cơ 
+•	Phân cụm rõ: 
+o	Các cluster tách biệt bằng khoảng trắng 
+Layout:
+•	Force-directed (tự cân bằng lực) 
+•	Không theo lưới → tự nhiên 
+________________________________________
+📌 5.4. Điều khiển đồ thị
+•	Thanh zoom: 
+o	Nút + / - 
+•	Có thể có pan (kéo) 
+________________________________________
+📋 6. BẢNG “TOP 10 NÚT QUAN TRỌNG”
+📌 Vị trí:
+•	Bên phải đồ thị 
+📌 Cấu trúc:
+Bảng gồm các cột:
+Cột	Nội dung
+#	STT
+Tài khoản	Username
+Vai trò	Nhãn mô tả
+Degree	Chỉ số
+Betweenness	Chỉ số
+Eigenvector	Chỉ số
+Điểm nguy cơ	Badge
+________________________________________
+📌 UI chi tiết:
+•	Header đậm 
+•	Dòng cách nhau rõ 
+•	Không có grid quá nặng → nhẹ mắt 
+Badge nguy cơ:
+•	Dạng pill (bo tròn) 
+•	Màu: 
+o	Đỏ → cao 
+o	Cam → trung bình 
+________________________________________
+👤 7. PANEL THÔNG TIN CHI TIẾT USER
+📌 Vị trí:
+•	Dưới đồ thị 
+📌 Cấu trúc:
+(1) Header:
+•	Avatar (icon người) 
+•	Username 
+•	Badge “Nguy cơ cao” 
+________________________________________
+(2) Thống kê:
+Hiển thị dạng inline:
+•	Người theo dõi 
+•	Bài viết 
+•	Share 
+•	Comment 
+________________________________________
+(3) Vai trò:
+•	Text mô tả ngắn 
+________________________________________
+(4) Mô tả:
+•	1–2 dòng giải thích hành vi 
+________________________________________
+📌 Thiết kế:
+•	Card nền trắng 
+•	Phân tách bằng khoảng cách, không dùng border nặng 
+________________________________________
+🧠 8. PANEL “CỤM CỘNG ĐỒNG”
+📌 Vị trí:
+•	Dưới bảng bên phải (bên trái của panel đề xuất) 
+📌 Nội dung:
+•	Danh sách cụm: 
+o	Cụm 1 (Đỏ) 
+o	Cụm 2 (Xanh) 
+o	… 
+•	Số lượng tài khoản mỗi cụm 
+•	Tổng số cụm 
+________________________________________
+📌 UI:
+•	Dùng màu trùng với graph 
+•	Có bullet màu → nhận diện nhanh 
+________________________________________
+🎯 9. PANEL “ĐỀ XUẤT CAN THIỆP”
+📌 Vị trí:
+•	Góc phải dưới 
+📌 Cấu trúc:
+Danh sách hành động:
+Mỗi item gồm:
+•	Icon minh họa 
+•	Nội dung hành động 
+•	Nhãn “Ưu tiên X” 
+________________________________________
+📌 UI:
+•	Dạng list 
+•	Có phân cấp ưu tiên: 
+o	Ưu tiên 1 → nổi bật nhất 
+•	Màu sắc hỗ trợ: 
+o	Đỏ / cam / xanh 
+________________________________________
+⚙️ 10. FOOTER
+•	Nằm dưới cùng 
+•	Nội dung: 
+o	Phiên bản hệ thống 
+o	Timestamp 
+👉 Font nhỏ, màu xám → không gây chú ý
+________________________________________
+🎨 11. NGUYÊN TẮC THIẾT KẾ GIAO DIỆN
+📌 11.1. Màu sắc
+•	Primary: xanh đậm (tin cậy, hệ thống) 
+•	Semantic colors: 
+o	Đỏ → nguy hiểm 
+o	Cam → cảnh báo 
+o	Xanh → an toàn 
+________________________________________
+📌 11.2. Typography
+•	Font sans-serif hiện đại 
+•	Phân cấp: 
+o	Số liệu → rất lớn 
+o	Tiêu đề → trung bình 
+o	Text → nhỏ 
+________________________________________
+📌 11.3. Khoảng cách (Spacing)
+•	Rất đều và nhất quán 
+•	Dùng whitespace để phân tách 
+________________________________________
+📌 11.4. Thành phần UI
+•	Card-based design 
+•	Badge 
+•	Icon + text 
+•	Table + graph kết hợp 
+________________________________________
+🧾 12. KẾT LUẬN
+Giao diện này là một dashboard phân tích mạng xã hội chuyên sâu, có các đặc trưng:
+•	Phân tầng rõ ràng: Navigation → Overview → Analysis → Detail → Action 
+•	Kết hợp: 
+o	Trực quan hóa dữ liệu (graph) 
+o	Bảng phân tích 
+o	Thông tin chi tiết 
+o	Hỗ trợ ra quyết định 
+•	Thiết kế: 
+o	Hiện đại 
+o	Trực quan 
+o	Tối ưu cho phân tích nhanh
+

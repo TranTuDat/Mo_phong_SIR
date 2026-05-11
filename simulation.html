@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="sir.docTitle">Mô phỏng SIR — InfoOps Analyzer</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+</head>
+<body class="sir-page-body">
+  <div class="app-shell sir-page-shell">
+    <div class="shell-tools" role="toolbar" aria-label="Theme & language">
+      <button type="button" id="langToggle" class="shell-tool-btn" title="English">EN</button>
+      <button type="button" id="themeToggle" class="shell-tool-btn" title="Dark mode">🌙</button>
+    </div>
+
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">IO</div>
+        <div>
+          <h1>InfoOps Analyzer</h1>
+          <p data-i18n="brand.sirSubtitle">Mô hình SIR trên đồ thị xã hội</p>
+        </div>
+      </div>
+      <nav class="menu">
+        <a href="/" class="menu-item menu-item-link">
+          <span aria-hidden="true">📊</span>
+          <span data-i18n="nav.networkOverview">Tổng quan mạng</span>
+        </a>
+        <span class="menu-item active">
+          <span aria-hidden="true">🦠</span>
+          <span data-i18n="nav.sirActive">Mô phỏng SIR</span>
+        </span>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="data-block">
+          <p class="data-label" data-i18n="sidebar.nodesShort">Node (bộ hiện tại)</p>
+          <p class="data-value tabular-nums" id="summary-nodes">—</p>
+        </div>
+        <div class="data-block">
+          <p class="data-label" data-i18n="sidebar.edgesShort">Edge</p>
+          <p class="data-value tabular-nums" id="summary-edges">—</p>
+        </div>
+        <p id="dataHint" class="sir-hint" style="display: none" data-i18n-html="sir.dataHintHtml"></p>
+      </div>
+    </aside>
+
+    <div class="main-panel">
+      <header class="topbar">
+        <div class="topbar-lead">
+          <h1 class="topbar-title" data-i18n="sir.pageTitle">Mô phỏng SIR trên mạng xã hội</h1>
+          <p class="topbar-sub" data-i18n="brand.sirSubtitle">Mô hình SIR trên đồ thị xã hội</p>
+        </div>
+        <div class="topbar-actions">
+          <a href="/" class="button-link" data-i18n="sir.backDash">Về tổng quan</a>
+        </div>
+      </header>
+
+      <div class="content-wrap">
+        <main class="content-area sir-page-main">
+          <p class="sir-intro" data-i18n-html="sir.intro"></p>
+
+          <div class="simulation-container">
+            <div class="sim-controls-panel">
+              <h3 data-i18n="sir.params">Tham số mô hình</h3>
+              <div class="model-tabs">
+                <button type="button" class="tab-btn sim-tab-model active" data-model="pure" data-i18n="sir.tabPure">SIR thuần</button>
+                <button type="button" class="tab-btn sim-tab-model" data-model="dynamic" data-i18n="sir.tabDyn">SIR + can thiệp</button>
+              </div>
+
+              <div id="pure-controls" class="model-controls">
+                <div class="form-group">
+                  <label for="pureTrans" data-i18n="sir.beta">Tỷ lệ lây (β)</label>
+                  <input type="range" id="pureTrans" min="0.01" max="0.5" step="0.01" value="0.3" />
+                  <span id="pureTransValue" class="tabular-nums">0.30</span>
+                </div>
+                <div class="form-group">
+                  <label for="pureRecov" data-i18n="sir.gamma">Tỷ lệ hồi phục (γ)</label>
+                  <input type="range" id="pureRecov" min="0.01" max="0.5" step="0.01" value="0.1" />
+                  <span id="pureRecovValue" class="tabular-nums">0.10</span>
+                </div>
+                <div class="form-group">
+                  <label for="pureDays" data-i18n="sir.maxDays">Số ngày tối đa</label>
+                  <input type="number" id="pureDays" value="300" min="10" max="2000" step="10" />
+                </div>
+                <div class="form-group">
+                  <label for="pureSeed" data-i18n="sir.seed">Seed</label>
+                  <input type="number" id="pureSeed" value="42" min="1" max="99999" />
+                </div>
+                <button type="button" id="btnRunPureSimulation" class="btn-primary sim-run-btn" data-i18n="sir.runPure">Chạy SIR thuần</button>
+              </div>
+
+              <div id="dynamic-controls" class="model-controls" style="display: none;">
+                <div class="form-group">
+                  <label for="dynTrans" data-i18n="sir.beta">Tỷ lệ lây (β)</label>
+                  <input type="range" id="dynTrans" min="0.01" max="0.5" step="0.01" value="0.3" />
+                  <span id="dynTransValue" class="tabular-nums">0.30</span>
+                </div>
+                <div class="form-group">
+                  <label for="dynRecov" data-i18n="sir.gamma">Tỷ lệ hồi phục (γ)</label>
+                  <input type="range" id="dynRecov" min="0.01" max="0.5" step="0.01" value="0.1" />
+                  <span id="dynRecovValue" class="tabular-nums">0.10</span>
+                </div>
+                <div class="form-group">
+                  <label for="dynDays" data-i18n="sir.maxDays">Số ngày tối đa</label>
+                  <input type="number" id="dynDays" value="300" min="10" max="2000" step="10" />
+                </div>
+                <div class="form-group">
+                  <label for="topK" data-i18n="sir.topK">Top-k miễn nhiễm</label>
+                  <input type="range" id="topK" min="1" max="50" step="1" value="10" />
+                  <span id="topKValue" class="tabular-nums">10</span>
+                </div>
+                <div class="form-group">
+                  <label for="interventionStrategy" data-i18n="sir.strategy">Chiến lược can thiệp</label>
+                  <select id="interventionStrategy">
+                    <option value="betweenness" data-i18n="sir.strategyBet">Betweenness</option>
+                    <option value="degree" data-i18n="sir.strategyDeg">Degree</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="dynSeed" data-i18n="sir.seed">Seed</label>
+                  <input type="number" id="dynSeed" value="42" min="1" max="99999" />
+                </div>
+                <button type="button" id="btnRunDynamicSimulation" class="btn-primary sim-run-btn" data-i18n="sir.runDyn">Chạy SIR + can thiệp</button>
+                <p class="sir-note-small" data-i18n-html="sir.hintCompareHtml"></p>
+              </div>
+
+              <div id="simStatus" class="status-message sim-status-msg" role="status"></div>
+            </div>
+
+            <div class="sim-results-panel">
+              <div id="sirResultsStrip" class="sir-results-strip" hidden>
+                <div class="sir-strip-card">
+                  <span class="sir-strip-label" data-i18n="sir.stripPeak">Ngày đỉnh</span>
+                  <strong id="stripPeakDay" class="tabular-nums">—</strong>
+                </div>
+                <div class="sir-strip-card">
+                  <span class="sir-strip-label" data-i18n="sir.stripPeakI">Max I</span>
+                  <strong id="stripPeakInfected" class="tabular-nums">—</strong>
+                </div>
+                <div class="sir-strip-card">
+                  <span class="sir-strip-label" data-i18n="sir.stripFinal">Ngày kết thúc</span>
+                  <strong id="stripFinalDay" class="tabular-nums">—</strong>
+                </div>
+                <div class="sir-strip-card">
+                  <span class="sir-strip-label" data-i18n="sir.stripS">S cuối</span>
+                  <strong id="stripSusceptibleEnd" class="tabular-nums">—</strong>
+                </div>
+              </div>
+
+              <div class="results-tabs">
+                <button type="button" class="result-tab-btn active" data-sir-tab="chart" data-i18n="sir.tabChart">Đồ thị</button>
+                <button type="button" class="result-tab-btn" data-sir-tab="stats" data-i18n="sir.tabStats">Chỉ số</button>
+                <button type="button" class="result-tab-btn" data-sir-tab="comparison" data-i18n="sir.tabCompare">So sánh</button>
+              </div>
+
+              <div id="sir-chart-tab" class="result-tab-content active">
+                <div class="sim-chart-wrap sir-chart-tall">
+                  <canvas id="sirSimChart" aria-label="SIR chart"></canvas>
+                </div>
+                <p class="chart-info" data-i18n="sir.chartFoot">Trục ngang: ngày…</p>
+              </div>
+
+              <div id="sir-stats-tab" class="result-tab-content">
+                <div class="stats-grid sim-stats-grid">
+                  <div class="stat-card">
+                    <div class="stat-icon" aria-hidden="true">🔥</div>
+                    <div>
+                      <p class="stat-label" data-i18n="sir.statPeakLabel">Ngày đỉnh</p>
+                      <h3 id="statPeakDaySim" class="tabular-nums">—</h3>
+                    </div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-icon" aria-hidden="true">🦠</div>
+                    <div>
+                      <p class="stat-label" data-i18n="sir.statPeakI">Max I</p>
+                      <h3 id="statPeakInfectedSim" class="tabular-nums">—</h3>
+                    </div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-icon" aria-hidden="true">⏱️</div>
+                    <div>
+                      <p class="stat-label" data-i18n="sir.statFinal">Ngày kết thúc</p>
+                      <h3 id="statFinalDaySim" class="tabular-nums">—</h3>
+                    </div>
+                  </div>
+                  <div class="stat-card">
+                    <div class="stat-icon" aria-hidden="true">🛡️</div>
+                    <div>
+                      <p class="stat-label" data-i18n="sir.statR">R cuối</p>
+                      <h3 id="statTotalRecoveredSim" class="tabular-nums">—</h3>
+                    </div>
+                  </div>
+                </div>
+                <div class="additional-stats">
+                  <h4 data-i18n="sir.detailTitle">Chi tiết</h4>
+                  <table id="statsTableSim">
+                    <tr>
+                      <td data-i18n="sir.rowModel">Mô hình</td>
+                      <td id="detailModelSim">—</td>
+                    </tr>
+                    <tr>
+                      <td data-i18n="sir.rowRates">β / γ</td>
+                      <td><span id="detailTransSim" class="tabular-nums">—</span> / <span id="detailRecovSim" class="tabular-nums">—</span></td>
+                    </tr>
+                    <tr>
+                      <td data-i18n="sir.rowOut">Thư mục</td>
+                      <td id="detailOutputPath" class="sir-path-cell">—</td>
+                    </tr>
+                    <tr>
+                      <td data-i18n="sir.rowNote">Ghi chú</td>
+                      <td id="detailRuntimeSim">—</td>
+                    </tr>
+                  </table>
+                </div>
+              </div>
+
+              <div id="sir-comparison-tab" class="result-tab-content">
+                <div class="sim-chart-wrap sir-chart-tall">
+                  <canvas id="comparisonSimChart"></canvas>
+                </div>
+                <div class="comparison-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th data-i18n="sir.cmpMetric">Chỉ số</th>
+                        <th data-i18n="sir.cmpPure">SIR thuần</th>
+                        <th data-i18n="sir.cmpDynBet">Can thiệp (betweenness)</th>
+                        <th data-i18n="sir.cmpDynDeg">Can thiệp (degree)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td data-i18n="sir.cmpPeak">Ngày đỉnh</td>
+                        <td id="compPeakDayPureSim" class="tabular-nums">—</td>
+                        <td id="compPeakDayDynBetSim" class="tabular-nums">—</td>
+                        <td id="compPeakDayDynDegSim" class="tabular-nums">—</td>
+                      </tr>
+                      <tr>
+                        <td data-i18n="sir.cmpPeakI">Đỉnh I</td>
+                        <td id="compPeakInfPureSim" class="tabular-nums">—</td>
+                        <td id="compPeakInfDynBetSim" class="tabular-nums">—</td>
+                        <td id="compPeakInfDynDegSim" class="tabular-nums">—</td>
+                      </tr>
+                      <tr>
+                        <td data-i18n="sir.cmpFinal">Ngày kết thúc</td>
+                        <td id="compFinalDayPureSim" class="tabular-nums">—</td>
+                        <td id="compFinalDayDynBetSim" class="tabular-nums">—</td>
+                        <td id="compFinalDayDynDegSim" class="tabular-nums">—</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <footer class="app-footer">
+        <div data-i18n="sir.footerNote">Pure_SIR / SIR_dynamic_immunization</div>
+      </footer>
+    </div>
+  </div>
+  <script src="i18n.js"></script>
+  <script src="sir_page.js"></script>
+</body>
+</html>
