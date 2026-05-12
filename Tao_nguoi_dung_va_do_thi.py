@@ -36,14 +36,13 @@ class SocialNetworkGenerator:
         output_dir (str): Thư mục output
     """
     
-    def __init__(self, num_users: int = 100, seed: int = 42, output_dir: str = None):
+    def __init__(self, num_users: int = 100, seed: int = 42):
         """
         Khởi tạo bộ tạo mạng xã hội
         
         Args:
             num_users (int): Số lượng người dùng (mặc định 100)
             seed (int): Seed cho random (mặc định 42)
-            output_dir (str): Thư mục xuất dữ liệu nếu muốn chỉ định riêng
             
         Raises:
             ValueError: Nếu num_users <= 0
@@ -59,11 +58,7 @@ class SocialNetworkGenerator:
         self.users = []
         self.relationships = []
         self.graph = None
-        if output_dir:
-            self.output_dir = str(output_dir)
-            os.makedirs(self.output_dir, exist_ok=True)
-        else:
-            self.output_dir = self._create_output_dir()
+        self.output_dir = self._create_output_dir()
         logger.info(f"Khởi tạo SocialNetworkGenerator: {num_users} users, seed={seed}")
     
     def _create_output_dir(self) -> str:
@@ -78,10 +73,10 @@ class SocialNetworkGenerator:
         """
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = f"output_{self.num_users}_users_{timestamp}"
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = Path(__file__).resolve().parent / f"output_{self.num_users}_users_{timestamp}"
+            output_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Thư mục output được tạo: {output_dir}")
-            return output_dir
+            return str(output_dir)
         except OSError as e:
             logger.error(f"Lỗi tạo thư mục output: {e}")
             raise
@@ -118,7 +113,7 @@ class SocialNetworkGenerator:
     
     def generate_relationships(self, relationship_probability: float = 0.15) -> list:
         """
-        Tạo quan hệ giữa người dùng (tối ưu hóa cho dữ liệu lớn)
+        Tạo quan hệ giữa người dùng
         
         Args:
             relationship_probability (float): Xác suất tạo quan hệ (0-1)
@@ -136,32 +131,10 @@ class SocialNetworkGenerator:
             logger.info(f"Bắt đầu tạo quan hệ (xác suất: {relationship_probability*100}%)...")
             
             user_ids = [u['user_id'] for u in self.users]
-            
-            # Tối ưu: Sử dụng Erdős–Rényi model cho dữ liệu lớn
-            if self.num_users > 1000:
-                # Với dữ liệu lớn, sử dụng fast generation
-                n = len(user_ids)
-                edges = []
-                
-                # Tính số cạnh dự kiến
-                expected_edges = int((n * (n - 1) / 2) * relationship_probability)
-                
-                # Sinh ngẫu nhiên các cạnh
-                random_samples = random.sample(
-                    [(user_ids[i], user_ids[j]) for i in range(n) for j in range(i + 1, n)],
-                    min(expected_edges, n * (n - 1) // 2)
-                )
-                
-                for user1_id, user2_id in random_samples:
-                    edges.append({'user1_id': user1_id, 'user2_id': user2_id})
-                
-                self.relationships = edges
-            else:
-                # Với dữ liệu nhỏ, sử dụng method truyền thống
-                for i, user1_id in enumerate(user_ids):
-                    for user2_id in user_ids[i+1:]:
-                        if random.random() < relationship_probability:
-                            self.relationships.append({'user1_id': user1_id, 'user2_id': user2_id})
+            for i, user1_id in enumerate(user_ids):
+                for user2_id in user_ids[i+1:]:
+                    if random.random() < relationship_probability:
+                        self.relationships.append({'user1_id': user1_id, 'user2_id': user2_id})
             
             logger.info(f"✓ Đã tạo {len(self.relationships)} quan hệ thành công")
             return self.relationships
@@ -199,7 +172,7 @@ class SocialNetworkGenerator:
     
     def calculate_metrics(self) -> pd.DataFrame:
         """
-        Tính toán các chỉ số mạng (centrality measures) với xử lý lỗi tốt
+        Tính toán các chỉ số mạng (centrality measures)
         
         Returns:
             pd.DataFrame: DataFrame chứa các chỉ số
@@ -213,30 +186,14 @@ class SocialNetworkGenerator:
         try:
             logger.info("Bắt đầu tính toán các chỉ số mạng...")
             
-            # Tính Degree Centrality
+            betweenness = nx.betweenness_centrality(self.graph)
             degree = nx.degree_centrality(self.graph)
-            
-            # Tính Betweenness Centrality
-            try:
-                if self.graph.number_of_edges() > 0:
-                    betweenness = nx.betweenness_centrality(self.graph)
-                else:
-                    betweenness = {node: 0 for node in self.graph.nodes()}
-            except Exception as e:
-                logger.warning(f"Betweenness centrality tính toán thất bại: {e}, sử dụng giá trị 0")
-                betweenness = {node: 0 for node in self.graph.nodes()}
             
             # Xử lý eigenvector centrality với error handling
             try:
-                if self.graph.number_of_edges() > 0:
-                    eigenvector = nx.eigenvector_centrality(self.graph, max_iter=1000)
-                else:
-                    eigenvector = {node: 0 for node in self.graph.nodes()}
-            except nx.NetworkXError as e:
-                logger.warning(f"Không thể tính eigenvector centrality ({e}), sử dụng giá trị 0")
-                eigenvector = {node: 0 for node in self.graph.nodes()}
-            except Exception as e:
-                logger.warning(f"Lỗi không lường trước trong eigenvector: {e}")
+                eigenvector = nx.eigenvector_centrality(self.graph, max_iter=1000)
+            except nx.NetworkXError:
+                logger.warning("Không thể tính eigenvector centrality, sử dụng giá trị 0")
                 eigenvector = {node: 0 for node in self.graph.nodes()}
             
             node_ids = list(self.graph.nodes())
@@ -257,7 +214,7 @@ class SocialNetworkGenerator:
     
     def save_data(self) -> pd.DataFrame:
         """
-        Lưu dữ liệu vào các file CSV với xử lý lỗi tốt hơn
+        Lưu dữ liệu vào các file CSV
         
         Returns:
             pd.DataFrame: DataFrame chỉ số mạng
@@ -268,31 +225,21 @@ class SocialNetworkGenerator:
         try:
             logger.info("Bắt đầu lưu dữ liệu...")
             
-            # Lưu danh sách người dùng
             users_df = pd.DataFrame(self.users)
             users_csv = os.path.join(self.output_dir, 'users.csv')
             users_df.to_csv(users_csv, index=False)
             logger.info(f"✓ Lưu danh sách người dùng: {users_csv}")
             
-            # Lưu quan hệ
             relationships_df = pd.DataFrame(self.relationships)
             relationships_csv = os.path.join(self.output_dir, 'relationships.csv')
             relationships_df.to_csv(relationships_csv, index=False)
             logger.info(f"✓ Lưu quan hệ: {relationships_csv}")
             
-            # Lưu ma trận kề (skip nếu quá lớn)
-            try:
-                if self.graph.number_of_nodes() <= 2000:
-                    adj_matrix = nx.to_pandas_adjacency(self.graph)
-                    adj_matrix_csv = os.path.join(self.output_dir, 'adjacency_matrix.csv')
-                    adj_matrix.to_csv(adj_matrix_csv)
-                    logger.info(f"✓ Lưu ma trận kề: {adj_matrix_csv}")
-                else:
-                    logger.info("⊘ Bỏ qua ma trận kề (dữ liệu quá lớn)")
-            except Exception as e:
-                logger.warning(f"Không thể lưu ma trận kề: {e}")
+            adj_matrix = nx.to_pandas_adjacency(self.graph)
+            adj_matrix_csv = os.path.join(self.output_dir, 'adjacency_matrix.csv')
+            adj_matrix.to_csv(adj_matrix_csv)
+            logger.info(f"✓ Lưu ma trận kề: {adj_matrix_csv}")
             
-            # Tính toán và lưu chỉ số
             metrics_df = self.calculate_metrics()
             metrics_csv = os.path.join(self.output_dir, 'metrics.csv')
             metrics_df.to_csv(metrics_csv, index=False)
@@ -302,13 +249,10 @@ class SocialNetworkGenerator:
         except OSError as e:
             logger.error(f"Lỗi khi lưu dữ liệu: {e}")
             raise
-        except Exception as e:
-            logger.error(f"Lỗi không mong muốn khi lưu dữ liệu: {e}")
-            raise
     
     def visualize_graph(self, figsize: tuple = (18, 6)) -> None:
         """
-        Trực quan hóa đồ thị mạng xã hội (với tối ưu cho dữ liệu lớn)
+        Trực quan hóa đồ thị mạng xã hội
         
         Args:
             figsize (tuple): Kích thước hình (mặc định (18, 6))
@@ -321,11 +265,6 @@ class SocialNetworkGenerator:
         
         try:
             logger.info("Bắt đầu trực quan hóa đồ thị...")
-            
-            # Bỏ qua visualization nếu đồ thị quá lớn (>2000 nodes)
-            if self.graph.number_of_nodes() > 2000:
-                logger.info("⊘ Bỏ qua visualization (đồ thị quá lớn)")
-                return
             
             fig, axes = plt.subplots(1, 3, figsize=figsize)
             fig.suptitle(f'Mạng Xã Hội ({self.num_users} người dùng)', fontsize=18, fontweight='bold', y=1.02)
@@ -377,7 +316,8 @@ class SocialNetworkGenerator:
             
             plt.close()
         except Exception as e:
-            logger.warning(f"Lỗi khi trực quan hóa đồ thị (không gây ảnh hưởng): {e}")
+            logger.error(f"Lỗi khi trực quan hóa đồ thị: {e}")
+            raise
     
     def print_statistics(self) -> None:
         """In thống kê mạng xã hội"""

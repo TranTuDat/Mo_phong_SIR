@@ -72,10 +72,10 @@ class PureSIRSimulation:
         if path and os.path.exists(path):
             return path
 
-        # Find the most recent output folder
-        output_folders = list(Path('.').glob('output_*'))
+        # Find the most recent output folder under the project directory
+        base_dir = Path(__file__).resolve().parent
+        output_folders = list(base_dir.glob('output_*'))
         if output_folders:
-            # Sort by modification time, get the most recent
             most_recent = max(output_folders, key=lambda p: p.stat().st_mtime)
             return str(most_recent)
 
@@ -408,10 +408,10 @@ class SIRDynamicImmunization:
         if path and os.path.exists(path):
             return path
 
-        # Find the most recent output folder
-        output_folders = list(Path('.').glob('output_*'))
+        # Find the most recent output folder under the project directory
+        base_dir = Path(__file__).resolve().parent
+        output_folders = list(base_dir.glob('output_*'))
         if output_folders:
-            # Sort by modification time, get the most recent
             most_recent = max(output_folders, key=lambda p: p.stat().st_mtime)
             return str(most_recent)
 
