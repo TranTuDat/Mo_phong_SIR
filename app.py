@@ -490,5 +490,18 @@ def not_found(error):
     return jsonify({'error': str(error)}), 404
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+=======
+    # Render sẽ tự cấp PORT
+    port = int(os.environ.get("PORT", 10000))
+
+    logger.info(f"Starting Flask app on port {port}")
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=False
+    )
+>>>>>>> 1e13e40e739f6bd921286db6065c98d94793dea9
