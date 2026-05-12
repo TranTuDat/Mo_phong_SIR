@@ -9,6 +9,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import tempfile
 import logging
 from pathlib import Path
 
@@ -72,9 +73,12 @@ class PureSIRSimulation:
         if path and os.path.exists(path):
             return path
 
-        # Find the most recent output folder under the project directory
         base_dir = Path(__file__).resolve().parent
-        output_folders = list(base_dir.glob('output_*'))
+        fallback_root = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', tempfile.gettempdir())) / 'mo_phong_outputs'
+        output_folders = [*base_dir.glob('output_*')]
+        if fallback_root.exists():
+            output_folders.extend(fallback_root.glob('output_*'))
+
         if output_folders:
             most_recent = max(output_folders, key=lambda p: p.stat().st_mtime)
             return str(most_recent)
@@ -408,9 +412,12 @@ class SIRDynamicImmunization:
         if path and os.path.exists(path):
             return path
 
-        # Find the most recent output folder under the project directory
         base_dir = Path(__file__).resolve().parent
-        output_folders = list(base_dir.glob('output_*'))
+        fallback_root = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', tempfile.gettempdir())) / 'mo_phong_outputs'
+        output_folders = [*base_dir.glob('output_*')]
+        if fallback_root.exists():
+            output_folders.extend(fallback_root.glob('output_*'))
+
         if output_folders:
             most_recent = max(output_folders, key=lambda p: p.stat().st_mtime)
             return str(most_recent)

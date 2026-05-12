@@ -9,11 +9,15 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend
 import matplotlib.pyplot as plt
 import os
+import tempfile
 import numpy as np
 import random
 import logging
 from datetime import datetime
 from pathlib import Path
+
+OUTPUT_ROOT = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', tempfile.gettempdir())) / 'mo_phong_outputs'
+OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Cấu hình logging
 logging.basicConfig(
@@ -73,7 +77,7 @@ class SocialNetworkGenerator:
         """
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_dir = Path(__file__).resolve().parent / f"output_{self.num_users}_users_{timestamp}"
+            output_dir = OUTPUT_ROOT / f"output_{self.num_users}_users_{timestamp}"
             output_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Thư mục output được tạo: {output_dir}")
             return str(output_dir)

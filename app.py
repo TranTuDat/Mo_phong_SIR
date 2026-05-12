@@ -39,7 +39,12 @@ def get_latest_output_dir() -> Optional[Path]:
         if output_dir.exists() and output_dir.is_dir():
             return output_dir
 
-    candidates = [p for p in BASE_DIR.glob('output_*') if p.is_dir()]
+    output_roots = [BASE_DIR]
+    fallback_root = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', tempfile.gettempdir())) / 'mo_phong_outputs'
+    if fallback_root.exists():
+        output_roots.append(fallback_root)
+
+    candidates = [p for root in output_roots for p in root.glob('output_*') if p.is_dir()]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
