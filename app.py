@@ -42,8 +42,14 @@ def get_latest_output_dir() -> Optional[Path]:
     env_path = os.getenv('MO_PHONG_OUTPUT_DIR')
     if env_path:
         output_dir = Path(env_path)
+        # Create folder if configured (Render filesystem might be ephemeral)
+        output_dir.mkdir(parents=True, exist_ok=True)
         if output_dir.exists() and output_dir.is_dir():
-            return output_dir
+            # Look for output_* subfolders inside it
+            candidates = [p for p in output_dir.glob('output_*') if p.is_dir()]
+            if candidates:
+                return max(candidates, key=lambda p: p.stat().st_mtime)
+    
 
     candidates = [p for p in BASE_DIR.glob('output_*') if p.is_dir() and p.name != 'output_archive']
     if not candidates:
@@ -518,8 +524,12 @@ def api_upload_data():
         if missing_cols:
             return jsonify({'error': f'Thiếu các cột bắt buộc: {", ".join(missing_cols)}'}), 400
 
-        # Write directly to project output folder to avoid temp-folder duplication
-        output_dir = BASE_DIR / f"output_uploaded_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # On Render, filesystem may be ephemeral: write uploaded outputs to configured dir (if any)
+        output_root_env = os.getenv('MO_PHONG_OUTPUT_DIR')
+        output_root = Path(output_root_env) if output_root_env else BASE_DIR
+        output_dir = output_root / f"output_uploaded_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
 
         # Process the uploaded data
         generator = SocialNetworkGenerator(num_users=len(df), seed=42)
@@ -637,4 +647,6 @@ def api_cleanup_outputs():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # Local dev only. On Render we use gunicorn + $PORT.
+    app.run(debug=True, port=8000)
+
