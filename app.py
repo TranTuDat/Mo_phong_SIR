@@ -22,6 +22,7 @@ from sir_sim_paths import (
     list_saved_dynamic_sir_runs,
     read_immunized_node_ids,
 )
+from graph_layout import spring_or_circular
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -327,10 +328,14 @@ def build_graph_payload():
     _cached_graph = graph
     _cached_output = folder
 
-    positions = nx.spring_layout(graph, seed=42, iterations=80)
+    positions = spring_or_circular(graph, seed=42, iterations=80)
     node_payload = build_node_payload(users, metrics, graph, positions)
 
-    communities = list(nx.community.greedy_modularity_communities(graph))
+    try:
+        communities = list(nx.community.greedy_modularity_communities(graph))
+    except Exception as exc:
+        logger.warning('greedy_modularity_communities failed (%s); single cluster', exc)
+        communities = [set(graph.nodes())] if graph.number_of_nodes() else []
     cluster_map = {}
     cluster_items = []
     for index, community in enumerate(communities[:4]):
@@ -394,21 +399,25 @@ def static_files(path):
 def api_summary():
     try:
         payload = build_graph_payload()
-        return jsonify({
-            'ready': payload.get('ready', True),
-            'nodes': payload['nodes'],
-            'edges': payload['edges'],
-            'interaction_type': 'Share/Comment',
-            'data_date': payload['data_date'],
-            'status': payload['status'],
-            'version': payload['version'],
-            'timestamp': payload['timestamp'],
-            'output_folder': payload.get('output_folder'),
-            'hint': payload.get('hint'),
-        })
     except Exception as e:
-        logger.error(f'Error in api_summary: {e}')
-        return jsonify({'error': str(e), 'ready': False}), 500
+        logger.exception('api_summary: build_graph_payload failed')
+        payload = empty_graph_payload()
+        payload['hint'] = (
+            f'Lỗi khi dựng đồ thị: {str(e)}. '
+            'Thử bấm «Tạo dữ liệu» lại, giảm số user, hoặc kiểm tra Render đã cài scipy (requirements.txt).'
+        )
+    return jsonify({
+        'ready': payload.get('ready', True),
+        'nodes': payload['nodes'],
+        'edges': payload['edges'],
+        'interaction_type': 'Share/Comment',
+        'data_date': payload['data_date'],
+        'status': payload['status'],
+        'version': payload['version'],
+        'timestamp': payload['timestamp'],
+        'output_folder': payload.get('output_folder'),
+        'hint': payload.get('hint'),
+    })
 
 
 @app.route('/api/graph')
@@ -417,8 +426,14 @@ def api_graph():
         payload = build_graph_payload()
         return jsonify(payload)
     except Exception as e:
-        logger.error(f'Error in api_graph: {e}')
-        return jsonify({'error': str(e)}), 500
+        logger.exception('api_graph: build_graph_payload failed')
+        p = empty_graph_payload()
+        p['hint'] = (
+            f'Lỗi khi dựng đồ thị: {str(e)}. '
+            'Thử «Tạo dữ liệu» lại hoặc giảm số user; trên Render cần có scipy trong requirements.txt.'
+        )
+        p['error'] = str(e)
+        return jsonify(p)
 
 
 @app.route('/api/top-nodes')

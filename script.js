@@ -336,8 +336,17 @@ function formatNumber(value) {
 
 async function fetchJson(path) {
   const response = await fetch(path, { cache: 'no-store' });
-  if (!response.ok) throw new Error(`API lỗi ${response.status}`);
-  return response.json();
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    /* ignore */
+  }
+  if (!response.ok) {
+    const msg = data.error || data.message || `HTTP ${response.status}`;
+    throw new Error(msg);
+  }
+  return data;
 }
 
 function applySummary(data) {
@@ -566,7 +575,15 @@ async function runGenerator() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!response.ok) throw new Error(`API lỗi ${response.status}`);
+    let errBody = {};
+    try {
+      errBody = await response.json();
+    } catch {
+      /* ignore */
+    }
+    if (!response.ok) {
+      throw new Error(errBody.error || `API lỗi ${response.status}`);
+    }
     await loadDashboard();
     clearSIRResult();
     toast(I18N[getLang()].toast_generated, 'success');

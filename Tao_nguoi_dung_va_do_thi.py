@@ -15,6 +15,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from graph_layout import spring_or_circular
+
 _REPO_ROOT = Path(__file__).resolve().parent
 # Render / máy chủ: ghi output cùng thư mục repo để get_latest_output_dir() tìm được.
 # Có thể gán MO_PHONG_OUTPUT_ROOT=/path/đến/thư_mục cha → dữ liệu nằm trong .../mo_phong_outputs/
@@ -285,7 +287,7 @@ class SocialNetworkGenerator:
             
             # Biểu đồ 1: Đồ thị mạng xã hội
             ax1 = axes[0]
-            pos = nx.spring_layout(self.graph, k=0.5, iterations=50, seed=42)
+            pos = spring_or_circular(self.graph, seed=42, iterations=50, k=0.5)
             node_sizes = [max(50, degree.get(node, 0.01) * 300) for node in self.graph.nodes()]
             
             nx.draw_networkx_nodes(self.graph, pos, node_size=node_sizes, node_color='lightblue', 
