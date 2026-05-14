@@ -9,14 +9,19 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend
 import matplotlib.pyplot as plt
 import os
-import tempfile
 import numpy as np
 import random
 import logging
 from datetime import datetime
 from pathlib import Path
 
-OUTPUT_ROOT = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', tempfile.gettempdir())) / 'mo_phong_outputs'
+_REPO_ROOT = Path(__file__).resolve().parent
+# Render / máy chủ: ghi output cùng thư mục repo để get_latest_output_dir() tìm được.
+# Có thể gán MO_PHONG_OUTPUT_ROOT=/path/đến/thư_mục cha → dữ liệu nằm trong .../mo_phong_outputs/
+if os.getenv('MO_PHONG_OUTPUT_ROOT'):
+    OUTPUT_ROOT = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', '')).resolve() / 'mo_phong_outputs'
+else:
+    OUTPUT_ROOT = _REPO_ROOT.resolve()
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Cấu hình logging

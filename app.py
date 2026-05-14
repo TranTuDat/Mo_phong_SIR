@@ -1,10 +1,14 @@
+import os
+
+os.environ.setdefault('MPLBACKEND', 'Agg')
+
 from flask import Flask, jsonify, request, send_from_directory, abort
 from pathlib import Path
 from typing import Optional
 import pandas as pd
 import networkx as nx
 import numpy as np
-import os
+import json
 import datetime
 import logging
 import tempfile
@@ -12,6 +16,12 @@ import shutil
 
 from Tao_nguoi_dung_va_do_thi import SocialNetworkGenerator
 from sir_models import PureSIRSimulation, SIRDynamicImmunization
+from sir_sim_paths import (
+    find_dynamic_sir_history_csv,
+    find_pure_sir_history_csv,
+    list_saved_dynamic_sir_runs,
+    read_immunized_node_ids,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -27,6 +37,8 @@ RISK_COLORS = {
 }
 CLUSTER_COLORS = ['#d63939', '#026e9f', '#f29424', '#9ca3af', '#6d28d9']
 
+DYNAMIC_STRATEGIES = ('betweenness', 'degree', 'eigenvector')
+
 _cached_graph = None
 _cached_payload = None
 _cached_output = None
@@ -39,19 +51,20 @@ def get_latest_output_dir() -> Optional[Path]:
         if output_dir.exists() and output_dir.is_dir():
             return output_dir
 
-    output_roots = [BASE_DIR]
-    fallback_root = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', tempfile.gettempdir())) / 'mo_phong_outputs'
-    if fallback_root.exists():
-        output_roots.append(fallback_root)
-
-    candidates = [p for root in output_roots for p in root.glob('output_*') if p.is_dir()]
+    candidates = [p for p in BASE_DIR.glob('output_*') if p.is_dir()]
+    candidates += [p for p in BASE_DIR.glob('output_uploaded_*') if p.is_dir()]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def load_output_data(output_dir: Optional[str] = None):
-    folder = Path(output_dir) if output_dir else get_latest_output_dir()
+    if output_dir:
+        folder = Path(output_dir)
+        if not folder.is_dir():
+            folder = BASE_DIR / output_dir
+    else:
+        folder = get_latest_output_dir()
     if folder is None or not folder.exists():
         raise FileNotFoundError('Không tìm thấy thư mục dữ liệu output')
 
@@ -85,6 +98,102 @@ def create_graph(users: pd.DataFrame, relationships: pd.DataFrame) -> nx.Graph:
     for _, row in relationships.iterrows():
         graph.add_edge(int(row['source']), int(row['target']))
     return graph
+
+
+def sir_metrics_from_history_df(df: pd.DataFrame, n_nodes: int) -> tuple:
+    """(peak_day, peak_infected, final_day) — ưu tiên đỉnh I thấp và kết thúc sớm khi so sánh."""
+    peak_idx = df['I'].idxmax()
+    peak_day = int(df.loc[peak_idx, 'day'])
+    peak_I = int(df['I'].max())
+    done = df[df['R'] == n_nodes]
+    final_day = int(done['day'].iloc[0]) if len(done) else int(df['day'].iloc[-1])
+    return peak_day, peak_I, final_day
+
+
+def build_intervention_recommendations(folder: Path) -> dict:
+    users_csv = folder / 'users.csv'
+    if not users_csv.exists():
+        raise FileNotFoundError('Thiếu users.csv trong output')
+
+    users = pd.read_csv(users_csv)
+    id_col = 'user_id' if 'user_id' in users.columns else 'id'
+    name_col = 'name' if 'name' in users.columns else id_col
+    id_to_name = {int(r[id_col]): str(r.get(name_col, r[id_col])) for _, r in users.iterrows()}
+    n_nodes = len(users)
+
+    pure_hist_path = find_pure_sir_history_csv(folder)
+    pure_metrics = None
+    if pure_hist_path is not None:
+        pdf = pd.read_csv(pure_hist_path)
+        pd_day, pd_pi, pd_fd = sir_metrics_from_history_df(pdf, n_nodes)
+        pure_metrics = {
+            'peak_day': pd_day,
+            'peak_infected': pd_pi,
+            'final_day': pd_fd,
+        }
+
+    rows = []
+
+    for strategy in DYNAMIC_STRATEGIES:
+        hist_path = find_dynamic_sir_history_csv(folder, strategy, 1)
+        node_ids = read_immunized_node_ids(folder, strategy, 1) if hist_path is not None else []
+
+        if hist_path is None:
+            rows.append({
+                'strategy': strategy,
+                'available': False,
+                'peak_day': None,
+                'peak_infected': None,
+                'final_day': None,
+                'node_ids': node_ids,
+                'intervened_nodes': [],
+            })
+            continue
+
+        dfp = pd.read_csv(hist_path)
+        peak_day, peak_I, final_day = sir_metrics_from_history_df(dfp, n_nodes)
+        detail = [{'id': nid, 'name': id_to_name.get(nid, str(nid))} for nid in node_ids]
+        rows.append({
+            'strategy': strategy,
+            'available': True,
+            'peak_day': peak_day,
+            'peak_infected': peak_I,
+            'final_day': final_day,
+            'node_ids': node_ids,
+            'intervened_nodes': detail,
+        })
+
+    available = [r for r in rows if r['available']]
+    rationale_vi = (
+        'Xếp hạng theo thứ tự từ điển: (1) đỉnh số ca nhiễm đồng thời (I) càng thấp càng tốt; '
+        '(2) nếu bằng nhau thì ngày kết thúc dịch (R = toàn mạng) càng sớm càng tốt.'
+    )
+    rationale_en = (
+        'Lexicographic ranking: (1) lower peak concurrent infected (I) is better; '
+        '(2) if tied, earlier full-recovery day (R equals network size) is better.'
+    )
+
+    winner = None
+    if available:
+        available.sort(key=lambda r: (r['peak_infected'], r['final_day']))
+        w = available[0]
+        winner = {
+            'strategy': w['strategy'],
+            'peak_day': w['peak_day'],
+            'peak_infected': w['peak_infected'],
+            'final_day': w['final_day'],
+            'node_ids': w['node_ids'],
+            'intervened_nodes': w['intervened_nodes'],
+        }
+
+    return {
+        'output_folder': folder.name,
+        'pure_sir': pure_metrics,
+        'strategies': rows,
+        'winner': winner,
+        'rationale_vi': rationale_vi,
+        'rationale_en': rationale_en,
+    }
 
 
 def compute_risk(row):
@@ -178,9 +287,29 @@ def build_node_payload(users, metrics, graph, positions):
             'x': int(80 + 720 * (pos[0] + 1) / 2),
             'y': int(60 + 420 * (pos[1] + 1) / 2),
             'radius': radius,
-            'color': RISK_COLORS.get(risk, '#9ca3af')
+            'color': '#94a3b8',
         })
     return payload
+
+
+def empty_graph_payload() -> dict:
+    """Khi chưa có thư mục output_* — tránh 500 cho dashboard."""
+    ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    return {
+        'ready': False,
+        'output_folder': None,
+        'nodes': 0,
+        'edges': 0,
+        'data_date': str(datetime.date.today()),
+        'status': 'Chưa có dữ liệu mạng',
+        'version': '1.0.0',
+        'timestamp': ts,
+        'nodes_data': [],
+        'edges_data': [],
+        'top_nodes': [],
+        'clusters': [],
+        'hint': 'Bấm «Tạo dữ liệu» trên thanh công cụ để sinh thư mục output_* (users.csv, relationships.csv, metrics.csv).',
+    }
 
 
 def build_graph_payload():
@@ -188,8 +317,8 @@ def build_graph_payload():
     try:
         folder, users, relationships, metrics = load_output_data()
     except FileNotFoundError as e:
-        logger.error(f'Data not found: {e}')
-        raise Exception(f'Không tìm thấy dữ liệu: {str(e)}')
+        logger.warning('Chưa có bộ dữ liệu output: %s', e)
+        return empty_graph_payload()
     
     if _cached_output == folder and _cached_payload is not None:
         return _cached_payload
@@ -215,6 +344,7 @@ def build_graph_payload():
         node_cluster = cluster_map.get(node['id'], {'name': 'Chưa xác định', 'color': '#9ca3af'})
         node['cluster'] = node_cluster['name']
         node['cluster_color'] = node_cluster['color']
+        node['color'] = node_cluster['color']
 
     edges_payload = [
         {'source': int(row['source']), 'target': int(row['target'])}
@@ -224,6 +354,7 @@ def build_graph_payload():
     top_nodes = sorted(node_payload, key=lambda item: item['betweenness'], reverse=True)[:10]
 
     _cached_payload = {
+        'ready': True,
         'output_folder': folder.name,
         'nodes': len(users),
         'edges': len(relationships),
@@ -244,6 +375,16 @@ def index():
     return send_from_directory(str(BASE_DIR), 'index.html')
 
 
+@app.route('/simulation')
+def simulation_page():
+    return send_from_directory(str(BASE_DIR), 'simulation.html')
+
+
+@app.route('/recommendations')
+def recommendations_page():
+    return send_from_directory(str(BASE_DIR), 'recommendations.html')
+
+
 @app.route('/<path:path>')
 def static_files(path):
     return send_from_directory(str(BASE_DIR), path)
@@ -254,6 +395,7 @@ def api_summary():
     try:
         payload = build_graph_payload()
         return jsonify({
+            'ready': payload.get('ready', True),
             'nodes': payload['nodes'],
             'edges': payload['edges'],
             'interaction_type': 'Share/Comment',
@@ -261,11 +403,12 @@ def api_summary():
             'status': payload['status'],
             'version': payload['version'],
             'timestamp': payload['timestamp'],
-            'output_folder': payload['output_folder'],
+            'output_folder': payload.get('output_folder'),
+            'hint': payload.get('hint'),
         })
     except Exception as e:
         logger.error(f'Error in api_summary: {e}')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e), 'ready': False}), 500
 
 
 @app.route('/api/graph')
@@ -342,13 +485,25 @@ def api_run_simulate():
         transmission_rate = float(payload.get('transmission_rate', 0.3))
         recovery_rate = float(payload.get('recovery_rate', 0.02))
         days = int(payload.get('days', 300))
+        seed = int(payload.get('seed', 42))
 
         if model == 'dynamic':
-            sim = SIRDynamicImmunization(output_dir=output_dir)
-            sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days)
+            top_k = int(payload.get('top_k', 10))
+            strategy = (payload.get('strategy') or 'betweenness').strip().lower()
+            intervention_day = int(payload.get('intervention_day', 1))
+            sim = SIRDynamicImmunization(
+                output_dir=output_dir,
+                top_k=top_k,
+                strategy=strategy,
+                intervention_day=intervention_day,
+            )
+            sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days, seed=seed)
             peak_day, peak_I, final_day = sim.get_statistics()
             return jsonify({
                 'model': 'dynamic',
+                'strategy': sim.strategy,
+                'top_k': sim.top_k,
+                'intervention_day': sim.intervention_day,
                 'output_directory': sim.results_dir,
                 'peak_day': peak_day,
                 'peak_infected': peak_I,
@@ -356,7 +511,7 @@ def api_run_simulate():
             })
 
         sim = PureSIRSimulation(output_dir=output_dir)
-        sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days)
+        sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days, seed=seed)
         peak_day, peak_I, final_day = sim.get_statistics()
         sim.save()
         return jsonify({
@@ -369,6 +524,254 @@ def api_run_simulate():
     except Exception as e:
         logger.error(f'Error in api_run_simulate: {e}')
         return jsonify({'error': f'Lỗi mô phỏng: {str(e)}'}), 500
+
+
+@app.route('/api/simulate-sir', methods=['POST'])
+def api_simulate_sir():
+    try:
+        payload = request.get_json() or {}
+        model = payload.get('model', 'pure')
+        folder, users, relationships, _metrics = load_output_data(payload.get('output_dir'))
+        graph = create_graph(users, relationships)
+        n_nodes = graph.number_of_nodes()
+        transmission_rate = float(payload.get('transmission_rate', 0.3))
+        recovery_rate = float(payload.get('recovery_rate', 0.1))
+        days = int(payload.get('days', 300))
+        seed = int(payload.get('seed', 42))
+
+        if model == 'dynamic':
+            top_k = int(payload.get('top_k', 10))
+            strategy = (payload.get('strategy') or 'betweenness').strip().lower()
+            intervention_day = int(payload.get('intervention_day', 1))
+            sim = SIRDynamicImmunization(
+                output_dir=str(folder),
+                top_k=top_k,
+                strategy=strategy,
+                intervention_day=intervention_day,
+            )
+            sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days, seed=seed)
+            peak_day, peak_I, final_day = sim.get_statistics()
+            hist = sim.history.to_dict(orient='records')
+            imm = [int(x) for x in sim.immunized_nodes]
+            return jsonify({
+                'model': 'dynamic',
+                'strategy': sim.strategy,
+                'top_k': sim.top_k,
+                'intervention_day': sim.intervention_day,
+                'peak_day': peak_day,
+                'peak_infected': peak_I,
+                'final_day': final_day,
+                'history': hist,
+                'output_directory': sim.results_dir,
+                'immunized_node_ids': imm,
+            })
+
+        sim = PureSIRSimulation(output_dir=str(folder))
+        sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days, seed=seed)
+        peak_day, peak_I, final_day = sim.get_statistics()
+        sim.save()
+        hist = sim.history.to_dict(orient='records')
+        return jsonify({
+            'model': 'pure',
+            'peak_day': peak_day,
+            'peak_infected': peak_I,
+            'final_day': final_day,
+            'history': hist,
+            'output_directory': sim.results_dir,
+        })
+    except Exception as e:
+        logger.error(f'Error in api_simulate_sir: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sir-results', methods=['GET'])
+def api_sir_results():
+    try:
+        output_dir = request.args.get('output_dir')
+        model = request.args.get('model', 'pure')
+        folder = Path(output_dir) if output_dir else get_latest_output_dir()
+        if output_dir and folder and not folder.is_dir():
+            alt = BASE_DIR / output_dir
+            if alt.is_dir():
+                folder = alt
+        if folder is None or not folder.exists():
+            return jsonify({'error': 'Không tìm thấy thư mục output'}), 404
+
+        if model == 'dynamic':
+            strat_q = (request.args.get('strategy') or 'betweenness').strip().lower()
+            if strat_q not in DYNAMIC_STRATEGIES:
+                strat_q = 'betweenness'
+            intervention_day = int(request.args.get('intervention_day', 1))
+            hist_path = find_dynamic_sir_history_csv(folder, strat_q, intervention_day)
+        else:
+            strat_q = None
+            intervention_day = None
+            hist_path = find_pure_sir_history_csv(folder)
+
+        if hist_path is None:
+            return jsonify({'error': 'Chưa có sir_history.csv'}), 404
+
+        df = pd.read_csv(hist_path)
+        users_csv = folder / 'users.csv'
+        n_nodes = len(pd.read_csv(users_csv)) if users_csv.exists() else int(df['S'].iloc[0] + df['I'].iloc[0] + df['R'].iloc[0])
+        peak_day, peak_I, final_day = sir_metrics_from_history_df(df, n_nodes)
+
+        payload = {
+            'history': df.to_dict(orient='records'),
+            'statistics': {
+                'peak_day': peak_day,
+                'peak_infected': peak_I,
+                'final_day': final_day,
+            },
+            'output_directory': str(hist_path.parent.resolve()),
+        }
+        if model == 'dynamic':
+            payload['strategy'] = strat_q
+            payload['intervention_day'] = intervention_day
+            mj_path = hist_path.parent / 'immunized_nodes.json'
+            if mj_path.exists():
+                try:
+                    with open(mj_path, encoding='utf-8') as f:
+                        mj = json.load(f)
+                    if mj.get('top_k') is not None:
+                        payload['top_k'] = mj.get('top_k')
+                    if mj.get('strategy'):
+                        payload['strategy'] = str(mj.get('strategy')).strip().lower()
+                    if mj.get('intervention_day') is not None:
+                        payload['intervention_day'] = int(mj.get('intervention_day'))
+                except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                    pass
+
+        return jsonify(payload)
+    except Exception as e:
+        logger.error(f'Error in api_sir_results: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/sir-saved-runs', methods=['GET'])
+def api_sir_saved_runs():
+    """Liệt kê các mô phỏng SIR đã có file trên đĩa (để khôi phục khi tải lại trang)."""
+    try:
+        output_dir = request.args.get('output_dir')
+        folder = Path(output_dir) if output_dir else get_latest_output_dir()
+        if output_dir and folder and not folder.is_dir():
+            alt = BASE_DIR / output_dir
+            if alt.is_dir():
+                folder = alt
+        if folder is None or not folder.exists():
+            return jsonify({'error': 'Không tìm thấy thư mục output'}), 404
+
+        pure_ok = find_pure_sir_history_csv(folder) is not None
+        dynamics = list_saved_dynamic_sir_runs(folder)
+        return jsonify({
+            'output_folder': folder.name,
+            'pure_available': pure_ok,
+            'dynamic_runs': dynamics,
+        })
+    except Exception as e:
+        logger.error(f'Error in api_sir_saved_runs: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+def empty_intervention_recommendations() -> dict:
+    """Cùng cấu trúc với build_intervention_recommendations khi chưa có thư mục output."""
+    rationale_vi = (
+        'Xếp hạng theo thứ tự từ điển: (1) đỉnh số ca nhiễm đồng thời (I) càng thấp càng tốt; '
+        '(2) nếu bằng nhau thì ngày kết thúc dịch (R = toàn mạng) càng sớm càng tốt.'
+    )
+    rationale_en = (
+        'Lexicographic ranking: (1) lower peak concurrent infected (I) is better; '
+        '(2) if tied, earlier full-recovery day (R equals network size) is better.'
+    )
+    rows = [
+        {
+            'strategy': s,
+            'available': False,
+            'peak_day': None,
+            'peak_infected': None,
+            'final_day': None,
+            'node_ids': [],
+            'intervened_nodes': [],
+        }
+        for s in DYNAMIC_STRATEGIES
+    ]
+    return {
+        'output_folder': None,
+        'pure_sir': None,
+        'strategies': rows,
+        'winner': None,
+        'rationale_vi': rationale_vi,
+        'rationale_en': rationale_en,
+        'hint': 'Chưa có thư mục output. Về tổng quan và bấm «Tạo dữ liệu» trước.',
+    }
+
+
+@app.route('/api/intervention-recommendations', methods=['GET'])
+def api_intervention_recommendations():
+    try:
+        output_dir = request.args.get('output_dir')
+        folder = Path(output_dir) if output_dir else get_latest_output_dir()
+        if output_dir and folder and not folder.is_dir():
+            alt = BASE_DIR / output_dir
+            if alt.is_dir():
+                folder = alt
+        if folder is None or not folder.exists():
+            return jsonify(empty_intervention_recommendations())
+        data = build_intervention_recommendations(folder)
+        return jsonify(data)
+    except FileNotFoundError as e:
+        logger.warning('intervention-recommendations: %s', e)
+        payload = empty_intervention_recommendations()
+        payload['warning'] = str(e)
+        return jsonify(payload)
+    except Exception as e:
+        logger.error(f'Error in api_intervention_recommendations: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cleanup-outputs', methods=['POST'])
+def api_cleanup_outputs():
+    try:
+        payload = request.get_json() or {}
+        keep_latest = int(payload.get('keep_latest', 3))
+        include_uploaded = bool(payload.get('include_uploaded', True))
+
+        prefixes = ['output_']
+        if include_uploaded:
+            prefixes.append('output_uploaded_')
+
+        candidates = []
+        for p in BASE_DIR.iterdir():
+            if not p.is_dir():
+                continue
+            if any(p.name.startswith(pref) for pref in prefixes):
+                candidates.append(p)
+
+        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        to_remove = candidates[keep_latest:]
+        removed = 0
+        for p in to_remove:
+            shutil.rmtree(p, ignore_errors=True)
+            removed += 1
+
+        global _cached_graph, _cached_payload, _cached_output
+        _cached_graph = None
+        _cached_payload = None
+        _cached_output = None
+
+        return jsonify({'removed_count': removed, 'kept': min(len(candidates), keep_latest)})
+    except Exception as e:
+        logger.error(f'Error in api_cleanup_outputs: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/health', methods=['GET'])
+def api_health():
+    latest = get_latest_output_dir()
+    return jsonify({
+        'ok': True,
+        'latest_output': latest.name if latest else None,
+    })
 
 
 @app.route('/api/upload-data', methods=['POST'])
@@ -494,6 +897,8 @@ def not_found(error):
     return jsonify({'error': str(error)}), 404
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    logger.info(f"Starting Flask app on port {port}")
-    app.run(host="0.0.0.0", port=port)
+    # Mặc định chỉ lắng nghe trên máy này (127.0.0.1). Mở LAN: APP_HOST=0.0.0.0
+    port = int(os.environ.get("PORT", "5000"))
+    host = os.environ.get("APP_HOST", "127.0.0.1")
+    logger.info("Chạy cục bộ: http://%s:%s (LAN: đặt biến môi trường APP_HOST=0.0.0.0)", host, port)
+    app.run(host=host, port=port, debug=False)

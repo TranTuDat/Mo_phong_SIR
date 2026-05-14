@@ -81,6 +81,7 @@ def test_dynamic_sir_api():
         assert 'final_day' in data
         assert 'history' in data
         assert 'top_k' in data
+        assert data.get('intervention_day', 1) == 1
         
         print(f"✓ Dynamic SIR simulation successful")
         print(f"  - Peak day: {data['peak_day']}")
@@ -92,6 +93,32 @@ def test_dynamic_sir_api():
         return True
     except Exception as e:
         print(f"✗ Dynamic SIR API test failed: {e}")
+        return False
+
+def test_dynamic_sir_intervention_day():
+    """Dynamic SIR với ngày can thiệp > 1"""
+    print("\nTest 3b: Dynamic SIR with intervention_day…")
+    try:
+        payload = {
+            'model': 'dynamic',
+            'transmission_rate': 0.3,
+            'recovery_rate': 0.1,
+            'days': 80,
+            'top_k': 5,
+            'seed': 42,
+            'intervention_day': 20,
+            'strategy': 'degree',
+        }
+        resp = requests.post(f'{BASE_URL}/api/simulate-sir', json=payload)
+        assert resp.status_code == 200, f"Status code: {resp.status_code}"
+        data = resp.json()
+        assert data['model'] == 'dynamic'
+        assert data['intervention_day'] == 20
+        assert 'history' in data
+        print(f"✓ intervention_day=20 OK, peak_infected={data['peak_infected']}")
+        return True
+    except Exception as e:
+        print(f"✗ intervention_day test failed: {e}")
         return False
 
 def test_comparison():
@@ -149,6 +176,7 @@ if __name__ == '__main__':
     results.append(test_simulation_page())
     results.append(test_pure_sir_api())
     results.append(test_dynamic_sir_api())
+    results.append(test_dynamic_sir_intervention_day())
     results.append(test_comparison())
     
     print("\n" + "="*60)

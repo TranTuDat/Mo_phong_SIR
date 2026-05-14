@@ -1,17 +1,15 @@
-"""
-Mô hình SIR: SIR thuần và SIR + miễn nhiễm động.
-(Gộp từ Mo_phong_SIR.py và Vong_lap_co_lap_va_SIR.py)
-"""
 
 import os
+import json
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 import random
-import tempfile
 import logging
 from pathlib import Path
+
+from sir_sim_paths import dynamic_dataset_subdir_fs, pure_dataset_subdir_fs
 
 # Cấu hình logging
 logging.basicConfig(
@@ -73,13 +71,10 @@ class PureSIRSimulation:
         if path and os.path.exists(path):
             return path
 
-        base_dir = Path(__file__).resolve().parent
-        fallback_root = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', tempfile.gettempdir())) / 'mo_phong_outputs'
-        output_folders = [*base_dir.glob('output_*')]
-        if fallback_root.exists():
-            output_folders.extend(fallback_root.glob('output_*'))
-
+        # Find the most recent output folder
+        output_folders = list(Path('.').glob('output_*'))
         if output_folders:
+            # Sort by modification time, get the most recent
             most_recent = max(output_folders, key=lambda p: p.stat().st_mtime)
             return str(most_recent)
 
@@ -112,7 +107,7 @@ class PureSIRSimulation:
 
             logger.info(f"✓ Graph: {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges\n")
 
-            self.results_dir = os.path.join(self.output_dir, 'Pure_SIR')
+            self.results_dir = pure_dataset_subdir_fs(self.output_dir)
             os.makedirs(self.results_dir, exist_ok=True)
             logger.info(f"✓ Results directory: {self.results_dir}\n")
         except FileNotFoundError as e:
@@ -237,15 +232,16 @@ class PureSIRSimulation:
             raise ValueError("Chưa có dữ liệu mô phỏng. Gọi simulate() trước")
         
         try:
-            peak_day = self.history['I'].idxmax()
-            peak_infected = self.history['I'].max()
+            peak_idx = self.history['I'].idxmax()
+            peak_day = int(self.history.loc[peak_idx, 'day'])
+            peak_infected = int(self.history['I'].max())
 
             # Tìm ngày cuối cùng khi R = n, nếu không tìm được thì lấy ngày cuối cùng
             recovered_all = self.history[self.history['R'] == self.graph.number_of_nodes()]
             if not recovered_all.empty:
-                final_day = recovered_all['day'].iloc[0]
+                final_day = int(recovered_all['day'].iloc[0])
             else:
-                final_day = self.history['day'].iloc[-1]
+                final_day = int(self.history['day'].iloc[-1])
 
             logger.info("="*60)
             logger.info("THỐNG KÊ SIR")
@@ -255,7 +251,7 @@ class PureSIRSimulation:
             logger.info(f"🛡️ Ngày kết thúc dịch: {final_day}")
             logger.info("="*60 + "\n")
 
-            return int(peak_day), int(peak_infected), int(final_day)
+            return peak_day, peak_infected, final_day
         except Exception as e:
             logger.error(f"Lỗi tính toán thống kê: {e}")
             raise
@@ -353,6 +349,7 @@ class SIRDynamicImmunization:
     Attributes:
         output_dir (str): Thư mục chứa dữ liệu input
         top_k (int): Số node hàng đầu để miễn nhiễm
+        intervention_day (int): Ngày (1-based) thực hiện miễn nhiễm top-k
         graph (nx.Graph): Đồ thị mạng xã hội
         users (pd.DataFrame): Dữ liệu người dùng
         relationships (pd.DataFrame): Dữ liệu quan hệ
@@ -360,38 +357,54 @@ class SIRDynamicImmunization:
         results_dir (str): Thư mục lưu kết quả
     """
 
-    def __init__(self, output_dir: str = None, top_k: int = 10, strategy: str = "betweenness"):
+    def __init__(
+        self,
+        output_dir: str = None,
+        top_k: int = 10,
+        strategy: str = "betweenness",
+        intervention_day: int = 1,
+    ):
         """
         Khởi tạo mô phỏng SIR với miễn nhiễm động
         
         Args:
             output_dir (str): Thư mục chứa dữ liệu (nếu None tìm tự động)
             top_k (int): Số node hàng đầu để miễn nhiễm (mặc định 10)
-            strategy (str): Chiến lược chọn node để miễn nhiễm: "betweenness" | "degree"
+            strategy (str): Chiến lược chọn node để miễn nhiễm: "betweenness" | "degree" | "eigenvector"
+            intervention_day (int): Ngày mô phỏng (1-based) thực hiện miễn nhiễm top-k (mặc định 1)
             
         Raises:
-            ValueError: Nếu top_k <= 0
+            ValueError: Nếu top_k <= 0 hoặc intervention_day < 1
             FileNotFoundError: Nếu không tìm thấy thư mục output
         """
         if top_k <= 0:
             raise ValueError("top_k phải > 0")
 
         strategy = (strategy or "betweenness").strip().lower()
-        if strategy not in ("betweenness", "degree"):
-            raise ValueError('strategy phải là "betweenness" hoặc "degree"')
+        if strategy not in ("betweenness", "degree", "eigenvector"):
+            raise ValueError('strategy phải là "betweenness", "degree" hoặc "eigenvector"')
+
+        intervention_day = int(intervention_day)
+        if intervention_day < 1:
+            raise ValueError("intervention_day phải >= 1")
         
         self.output_dir = self._find_output_dir(output_dir)
         self.top_k = top_k
         self.strategy = strategy
+        self.intervention_day = intervention_day
 
         self.graph = None
         self.users = None
         self.relationships = None
         self.history = None
         self.results_dir = None
+        self.immunized_nodes = []
 
         self._load_data()
-        logger.info(f"Khởi tạo SIRDynamicImmunization: top_k={top_k}, strategy={strategy}")
+        logger.info(
+            f"Khởi tạo SIRDynamicImmunization: top_k={top_k}, strategy={strategy}, "
+            f"intervention_day={self.intervention_day}"
+        )
 
     # =========================
     # LOAD DATA
@@ -412,13 +425,10 @@ class SIRDynamicImmunization:
         if path and os.path.exists(path):
             return path
 
-        base_dir = Path(__file__).resolve().parent
-        fallback_root = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', tempfile.gettempdir())) / 'mo_phong_outputs'
-        output_folders = [*base_dir.glob('output_*')]
-        if fallback_root.exists():
-            output_folders.extend(fallback_root.glob('output_*'))
-
+        # Find the most recent output folder
+        output_folders = list(Path('.').glob('output_*'))
         if output_folders:
+            # Sort by modification time, get the most recent
             most_recent = max(output_folders, key=lambda p: p.stat().st_mtime)
             return str(most_recent)
 
@@ -451,7 +461,9 @@ class SIRDynamicImmunization:
 
             logger.info(f"✓ Graph: {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges\n")
 
-            self.results_dir = os.path.join(self.output_dir, 'SIR_dynamic_immunization')
+            self.results_dir = dynamic_dataset_subdir_fs(
+                self.output_dir, self.strategy, self.intervention_day
+            )
             os.makedirs(self.results_dir, exist_ok=True)
             logger.info(f"✓ Results directory: {self.results_dir}\n")
         except FileNotFoundError as e:
@@ -466,7 +478,7 @@ class SIRDynamicImmunization:
     # =========================
     def get_top_nodes(self) -> list:
         """
-        Chọn top_k node theo chiến lược (betweenness hoặc degree)
+        Chọn top_k node theo chiến lược (betweenness, degree hoặc eigenvector)
         
         Returns:
             list: Danh sách top node
@@ -482,6 +494,15 @@ class SIRDynamicImmunization:
                 logger.info("Tính toán degree (bậc) ...")
                 score = {int(n): int(d) for n, d in self.graph.degree()}
                 key_name = "deg"
+            elif self.strategy == "eigenvector":
+                logger.info("Tính toán eigenvector centrality ...")
+                try:
+                    ev = nx.eigenvector_centrality(self.graph, max_iter=1000)
+                    score = {int(n): float(v) for n, v in ev.items()}
+                except Exception as ex:
+                    logger.warning(f"Eigenvector thất bại ({ex}), dùng degree làm proxy.")
+                    score = {int(n): int(d) for n, d in self.graph.degree()}
+                key_name = "eig"
             else:
                 logger.info("Tính toán betweenness centrality ...")
                 bet = nx.betweenness_centrality(self.graph)
@@ -494,7 +515,7 @@ class SIRDynamicImmunization:
             logger.info("\n💉 Top node được chuyển sang R:")
             for i, node in enumerate(top_nodes, 1):
                 val = score.get(int(node), 0)
-                if key_name == "bet":
+                if key_name in ("bet", "eig"):
                     logger.info(f"{i}. Node {node} ({key_name}={val:.6f})")
                 else:
                     logger.info(f"{i}. Node {node} ({key_name}={val})")
@@ -516,6 +537,9 @@ class SIRDynamicImmunization:
             recovery_rate (float): Tỷ lệ hồi phục (0-1)
             days (int): Số ngày mô phỏng
             seed (int): Seed cho random
+
+        Note:
+            Miễn nhiễm top-k diễn ra tại ngày ``self.intervention_day`` (phải ≤ ``days``).
             
         Returns:
             int: Ngày bắt đầu miễn nhiễm
@@ -529,6 +553,10 @@ class SIRDynamicImmunization:
             raise ValueError("recovery_rate phải trong khoảng [0, 1]")
         if days <= 0:
             raise ValueError("days phải > 0")
+        if self.intervention_day > days:
+            raise ValueError(
+                f"intervention_day ({self.intervention_day}) không được lớn hơn days ({days})"
+            )
         
         try:
             random.seed(seed)
@@ -577,10 +605,11 @@ class SIRDynamicImmunization:
                 state = new_state
 
                 # =====================
-                # SAU NGÀY 1 → MIỄN NHIỄM
+                # TẠI intervention_day → MIỄN NHIỄM
                 # =====================
-                if day == 1 and not immunized:
+                if day == self.intervention_day and not immunized:
                     top_nodes = self.get_top_nodes()
+                    self.immunized_nodes = list(top_nodes)
 
                     for node in top_nodes:
                         idx = node_list.index(node)
@@ -618,6 +647,23 @@ class SIRDynamicImmunization:
             self.history.to_csv(history_path, index=False)
             logger.info(f'✓ Lưu history: {history_path}')
 
+            imm_path = os.path.join(self.results_dir, 'immunized_nodes.json')
+            with open(imm_path, 'w', encoding='utf-8') as f:
+                json.dump(
+                    {
+                        'strategy': self.strategy,
+                        'top_k': self.top_k,
+                        'seed': seed,
+                        'intervention_day': self.intervention_day,
+                        'immune_day': immune_day,
+                        'node_ids': [int(x) for x in self.immunized_nodes],
+                    },
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            logger.info(f'✓ Lưu danh sách can thiệp: {imm_path}')
+
             logger.info("\n✓ Hoàn thành mô phỏng!\n")
 
             return immune_day
@@ -643,9 +689,15 @@ class SIRDynamicImmunization:
             raise ValueError("Chưa có dữ liệu mô phỏng. Gọi simulate() trước")
         
         try:
-            peak_day = self.history['I'].idxmax()
-            peak_I = self.history['I'].max()
-            final_day = self.history['day'].iloc[-1]
+            peak_idx = self.history['I'].idxmax()
+            peak_day = int(self.history.loc[peak_idx, 'day'])
+            peak_I = int(self.history['I'].max())
+            n = self.graph.number_of_nodes()
+            recovered_all = self.history[self.history['R'] == n]
+            if not recovered_all.empty:
+                final_day = int(recovered_all['day'].iloc[0])
+            else:
+                final_day = int(self.history['day'].iloc[-1])
 
             logger.info("\n" + "="*60)
             logger.info("📊 THỐNG KÊ")
@@ -654,7 +706,7 @@ class SIRDynamicImmunization:
             logger.info(f"Mạng miễn nhiễm tại ngày: {final_day}")
             logger.info("="*60)
 
-            return int(peak_day), int(peak_I), int(final_day)
+            return peak_day, peak_I, final_day
         except Exception as e:
             logger.error(f"Lỗi tính toán thống kê: {e}")
             raise

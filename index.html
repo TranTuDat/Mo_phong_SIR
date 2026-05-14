@@ -6,7 +6,7 @@
   <title data-i18n="dashboard.docTitle">InfoOps Analyzer</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body class="dashboard-body">
   <div class="app-shell">
     <div class="shell-tools" role="toolbar" aria-label="Giao diện & ngôn ngữ">
       <button type="button" id="langToggle" class="shell-tool-btn" title="English">EN</button>
@@ -29,6 +29,10 @@
         <a href="/simulation" class="menu-item menu-item-link">
           <span aria-hidden="true">🦠</span>
           <span data-i18n="nav.sirPageLong">Trang mô phỏng SIR</span>
+        </a>
+        <a href="/recommendations" class="menu-item menu-item-link">
+          <span aria-hidden="true">💡</span>
+          <span data-i18n="nav.recsPage">Gợi ý can thiệp</span>
         </a>
       </nav>
       <div class="sidebar-footer">
@@ -102,6 +106,7 @@
         </div>
         <div class="topbar-actions">
           <a href="/simulation" class="button-link button-link-accent" data-i18n="dashboard.simLink">Trang mô phỏng SIR</a>
+          <a href="/recommendations" class="button-link" data-i18n="nav.recsPage">Gợi ý can thiệp</a>
           <button type="button" id="btnGenerate" onclick="openDataGenModal()" data-i18n="dashboard.generate">Tạo dữ liệu</button>
           <button type="button" id="btnRunPureSIR" data-i18n="dashboard.sirPure">SIR thuần</button>
           <button type="button" id="btnRunDynamicSIR" data-i18n="dashboard.sirDyn">SIR động</button>
@@ -136,14 +141,6 @@
                 <p class="metric-footnote" data-i18n="dashboard.metricFootnote">Ước lượng từ mạng</p>
               </div>
             </article>
-            <article class="metric-card red">
-              <div class="metric-icon" aria-hidden="true">🚨</div>
-              <div>
-                <p class="metric-label" data-i18n="dashboard.metricHighRisk">Nguy cơ cao (ước lượng)</p>
-                <h2 class="tabular-nums" id="metric-high-risk">34</h2>
-                <p class="metric-footnote" data-i18n="dashboard.metricFootnote">Ước lượng từ mạng</p>
-              </div>
-            </article>
           </section>
 
           <section class="dashboard-grid">
@@ -151,7 +148,7 @@
               <div class="panel-header">
                 <div>
                   <h3 data-i18n="dashboard.graphTitle">Bản đồ mạng</h3>
-                  <p class="subtext" data-i18n="dashboard.graphSub">Node theo mức độ nguy cơ và vai trò.</p>
+                  <p class="subtext" data-i18n="dashboard.graphSub">Node theo cụm cộng đồng (màu) và vai trò.</p>
                 </div>
                 <div class="graph-controls">
                   <label>
@@ -164,11 +161,9 @@
                   <button type="button" id="refreshGraph" data-i18n="dashboard.refresh">Làm mới</button>
                 </div>
               </div>
-              <div class="legend-row">
-                <div><span class="legend-dot high"></span><span data-i18n="dashboard.riskHigh">Nguy cơ cao</span></div>
-                <div><span class="legend-dot medium"></span><span data-i18n="dashboard.riskMed">Trung bình</span></div>
-                <div><span class="legend-dot low"></span><span data-i18n="dashboard.riskLow">Thấp</span></div>
-                <div><span class="legend-dot unknown"></span><span data-i18n="dashboard.riskUnknown">Chưa xác định</span></div>
+              <div class="legend-row" id="clusterLegendRow">
+                <span class="legend-title" data-i18n="dashboard.clusterLegendTitle">Màu nút: cụm</span>
+                <div id="clusterLegendItems" class="cluster-legend-items"></div>
               </div>
               <div class="graph-container">
                 <svg id="networkGraph" viewBox="0 0 900 520" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Network"></svg>
@@ -224,7 +219,6 @@
                       <th data-i18n="dashboard.thDegree">Degree</th>
                       <th data-i18n="dashboard.thBetw">Betweenness</th>
                       <th data-i18n="dashboard.thEigen">Eigenvector</th>
-                      <th data-i18n="dashboard.thRisk">Điểm nguy cơ</th>
                     </tr>
                   </thead>
                   <tbody id="topNodesTable"></tbody>
@@ -237,7 +231,7 @@
                 <div class="profile-avatar" aria-hidden="true">👤</div>
                 <div>
                   <h3 id="selectedName">—</h3>
-                  <div class="badge danger" id="selectedRisk">—</div>
+                  <div class="badge small" id="selectedClusterBadge">—</div>
                 </div>
               </div>
               <div class="profile-metrics">
@@ -270,13 +264,6 @@
                 <span class="badge small"><span id="clusterCountNum">—</span> · <span data-i18n="dashboard.clusterUnit">cụm</span></span>
               </div>
               <ul id="clustersList" class="cluster-list"></ul>
-            </div>
-
-            <div class="recommendation-panel card">
-              <div class="panel-header">
-                <h3 data-i18n="dashboard.recs">Gợi ý can thiệp</h3>
-              </div>
-              <ul id="recommendationList" class="recommendation-list"></ul>
             </div>
           </section>
         </main>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title data-i18n="sir.docTitle">Mô phỏng SIR — InfoOps Analyzer</title>
   <link rel="stylesheet" href="styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+  <script src="vendor/chart.min.js"></script>
 </head>
 <body class="sir-page-body">
   <div class="app-shell sir-page-shell">
@@ -31,6 +31,10 @@
           <span aria-hidden="true">🦠</span>
           <span data-i18n="nav.sirActive">Mô phỏng SIR</span>
         </span>
+        <a href="/recommendations" class="menu-item menu-item-link">
+          <span aria-hidden="true">💡</span>
+          <span data-i18n="nav.recsPage">Gợi ý can thiệp</span>
+        </a>
       </nav>
       <div class="sidebar-footer">
         <div class="data-block">
@@ -53,6 +57,7 @@
         </div>
         <div class="topbar-actions">
           <a href="/" class="button-link" data-i18n="sir.backDash">Về tổng quan</a>
+          <a href="/recommendations" class="button-link" data-i18n="nav.recsPage">Gợi ý can thiệp</a>
         </div>
       </header>
 
@@ -115,7 +120,13 @@
                   <select id="interventionStrategy">
                     <option value="betweenness" data-i18n="sir.strategyBet">Betweenness</option>
                     <option value="degree" data-i18n="sir.strategyDeg">Degree</option>
+                    <option value="eigenvector" data-i18n="sir.strategyEig">Eigenvector</option>
                   </select>
+                </div>
+                <div class="form-group">
+                  <label for="interventionDay" data-i18n="sir.interventionDay">Ngày can thiệp</label>
+                  <input type="number" id="interventionDay" value="1" min="1" max="300" step="1" />
+                  <p class="sir-note-small" data-i18n="sir.interventionDayHint">(1 = ngày đầu tiên của mô phỏng)</p>
                 </div>
                 <div class="form-group">
                   <label for="dynSeed" data-i18n="sir.seed">Seed</label>
@@ -219,36 +230,12 @@
                 <div class="sim-chart-wrap sir-chart-tall">
                   <canvas id="comparisonSimChart"></canvas>
                 </div>
-                <div class="comparison-table">
-                  <table>
+                <div class="comparison-table sim-cmp-table-wrap">
+                  <table id="comparisonSimTable">
                     <thead>
-                      <tr>
-                        <th data-i18n="sir.cmpMetric">Chỉ số</th>
-                        <th data-i18n="sir.cmpPure">SIR thuần</th>
-                        <th data-i18n="sir.cmpDynBet">Can thiệp (betweenness)</th>
-                        <th data-i18n="sir.cmpDynDeg">Can thiệp (degree)</th>
-                      </tr>
+                      <tr id="comparisonSimTableHeadRow"></tr>
                     </thead>
-                    <tbody>
-                      <tr>
-                        <td data-i18n="sir.cmpPeak">Ngày đỉnh</td>
-                        <td id="compPeakDayPureSim" class="tabular-nums">—</td>
-                        <td id="compPeakDayDynBetSim" class="tabular-nums">—</td>
-                        <td id="compPeakDayDynDegSim" class="tabular-nums">—</td>
-                      </tr>
-                      <tr>
-                        <td data-i18n="sir.cmpPeakI">Đỉnh I</td>
-                        <td id="compPeakInfPureSim" class="tabular-nums">—</td>
-                        <td id="compPeakInfDynBetSim" class="tabular-nums">—</td>
-                        <td id="compPeakInfDynDegSim" class="tabular-nums">—</td>
-                      </tr>
-                      <tr>
-                        <td data-i18n="sir.cmpFinal">Ngày kết thúc</td>
-                        <td id="compFinalDayPureSim" class="tabular-nums">—</td>
-                        <td id="compFinalDayDynBetSim" class="tabular-nums">—</td>
-                        <td id="compFinalDayDynDegSim" class="tabular-nums">—</td>
-                      </tr>
-                    </tbody>
+                    <tbody id="comparisonSimTableBody"></tbody>
                   </table>
                 </div>
               </div>
@@ -258,7 +245,7 @@
       </div>
 
       <footer class="app-footer">
-        <div data-i18n="sir.footerNote">Pure_SIR / SIR_dynamic_immunization</div>
+        <div data-i18n="sir.footerNote">Dữ liệu mạng + simulation_sir/pure | simulation_sir/dynamic/…</div>
       </footer>
     </div>
   </div>

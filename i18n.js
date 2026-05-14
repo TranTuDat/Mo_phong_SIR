@@ -7,7 +7,7 @@
 
   const STRINGS = {
     vi: {
-      meta: { appTitle: 'InfoOps Analyzer', sirTitle: 'Mô phỏng SIR — InfoOps Analyzer' },
+      meta: { appTitle: 'InfoOps Analyzer', sirTitle: 'Mô phỏng SIR — InfoOps Analyzer', recTitle: 'Gợi ý can thiệp — InfoOps Analyzer' },
       shell: {
         themeLight: 'Chế độ sáng',
         themeDark: 'Chế độ tối',
@@ -20,6 +20,7 @@
         sirPageLong: 'Trang mô phỏng SIR',
         networkOverview: 'Tổng quan mạng',
         sirActive: 'Mô phỏng SIR',
+        recsPage: 'Gợi ý can thiệp',
       },
       brand: {
         subtitle: 'Phân tích mạng & lan truyền',
@@ -99,6 +100,37 @@
         hintCsv: 'Cột: id, name, followers, posts, shares, comments, risk',
         cancel: 'Hủy',
         confirmGen: 'Tạo dữ liệu',
+      },
+      rec: {
+        pageTitle: 'Gợi ý can thiệp (theo mô phỏng)',
+        subtitle: 'So sánh betweenness, degree và eigenvector',
+        intro:
+          'Trang này đọc kết quả <code>Pure_SIR</code> và các thư mục <code>SIR_dynamic_*</code> trong bộ output hiện tại, rồi chọn phương pháp can thiệp tốt hơn theo đỉnh nhiễm (I) và thời gian kết thúc dịch.',
+        btnAnalyze: 'Phân tích lại',
+        outputLabel: 'Bộ dữ liệu',
+        rationaleTitle: 'Tiêu chí đề xuất',
+        pureTitle: 'SIR thuần (tham chiếu)',
+        tableStrategy: 'Chiến lược',
+        tablePeakI: 'Đỉnh I',
+        tablePeakDay: 'Ngày đỉnh',
+        tableFinal: 'Ngày kết thúc',
+        tableStatus: 'Trạng thái',
+        statusOk: 'Có kết quả',
+        statusMissing: 'Chưa chạy mô phỏng',
+        winnerTitle: 'Đề xuất',
+        winnerNone: 'Chưa đủ dữ liệu động để so sánh. Chạy SIR + can thiệp cho từng chiến lược trên trang mô phỏng.',
+        nodesTitle: 'Nút đã dùng để can thiệp (chiến lược được chọn)',
+        navSir: 'Mô phỏng SIR',
+        navDash: 'Tổng quan',
+        errLoad: 'Không tải được phân tích.',
+        r1: 'Kiểm soát luồng tại tài khoản nguy cơ cao',
+        r2: 'Giám sát nút betweenness lớn',
+        r3: 'Cảnh báo nhóm tương tác bất thường',
+        r4: 'Rà soát cụm chưa xác định',
+        p1: 'Ưu tiên 1',
+        p2: 'Ưu tiên 2',
+        p3: 'Ưu tiên 3',
+        p4: 'Ưu tiên 4',
       },
       sir: {
         pageTitle: 'Mô phỏng SIR trên mạng xã hội',
@@ -187,19 +219,9 @@
         noDesc: 'Chưa có mô tả.',
         processing: 'Đang xử lý…',
       },
-      rec: {
-        r1: 'Kiểm soát luồng tại tài khoản nguy cơ cao',
-        r2: 'Giám sát nút betweenness lớn',
-        r3: 'Cảnh báo nhóm tương tác bất thường',
-        r4: 'Rà soát cụm chưa xác định',
-        p1: 'Ưu tiên 1',
-        p2: 'Ưu tiên 2',
-        p3: 'Ưu tiên 3',
-        p4: 'Ưu tiên 4',
-      },
     },
     en: {
-      meta: { appTitle: 'InfoOps Analyzer', sirTitle: 'SIR simulation — InfoOps Analyzer' },
+      meta: { appTitle: 'InfoOps Analyzer', sirTitle: 'SIR simulation — InfoOps Analyzer', recTitle: 'Intervention suggestions — InfoOps Analyzer' },
       shell: {
         themeLight: 'Light mode',
         themeDark: 'Dark mode',
@@ -212,6 +234,7 @@
         sirPageLong: 'SIR simulation page',
         networkOverview: 'Network overview',
         sirActive: 'SIR simulation',
+        recsPage: 'Intervention suggestions',
       },
       brand: {
         subtitle: 'Network & propagation analytics',
@@ -291,6 +314,37 @@
         hintCsv: 'Columns: id, name, followers, posts, shares, comments, risk',
         cancel: 'Cancel',
         confirmGen: 'Generate',
+      },
+      rec: {
+        pageTitle: 'Intervention suggestions (simulation-based)',
+        subtitle: 'Compare betweenness, degree, and eigenvector',
+        intro:
+          'This page reads <code>Pure_SIR</code> and <code>SIR_dynamic_*</code> outputs from the current dataset, then ranks intervention strategies by peak concurrent infected (I) and epidemic end day.',
+        btnAnalyze: 'Refresh analysis',
+        outputLabel: 'Dataset',
+        rationaleTitle: 'Ranking criteria',
+        pureTitle: 'Pure SIR (reference)',
+        tableStrategy: 'Strategy',
+        tablePeakI: 'Peak I',
+        tablePeakDay: 'Peak day',
+        tableFinal: 'End day',
+        tableStatus: 'Status',
+        statusOk: 'Has run',
+        statusMissing: 'Not run yet',
+        winnerTitle: 'Recommendation',
+        winnerNone: 'Not enough dynamic runs to compare. Run SIR + intervention for each strategy on the simulation page.',
+        nodesTitle: 'Immunized nodes (winning strategy)',
+        navSir: 'SIR simulation',
+        navDash: 'Overview',
+        errLoad: 'Could not load analysis.',
+        r1: 'Control flows at high-risk accounts',
+        r2: 'Monitor high-betweenness nodes',
+        r3: 'Alert on anomalous engagement spikes',
+        r4: 'Review undefined clusters',
+        p1: 'Priority 1',
+        p2: 'Priority 2',
+        p3: 'Priority 3',
+        p4: 'Priority 4',
       },
       sir: {
         pageTitle: 'SIR simulation on social network',
@@ -379,16 +433,6 @@
         noDesc: 'No description.',
         processing: 'Processing…',
       },
-      rec: {
-        r1: 'Control flows at high-risk accounts',
-        r2: 'Monitor high-betweenness nodes',
-        r3: 'Alert on anomalous engagement spikes',
-        r4: 'Review undefined clusters',
-        p1: 'Priority 1',
-        p2: 'Priority 2',
-        p3: 'Priority 3',
-        p4: 'Priority 4',
-      },
     },
   };
 
@@ -438,7 +482,8 @@
     const meta = STRINGS[getLang()].meta;
     if (meta) {
       const isSir = document.body.classList.contains('sir-page-body');
-      document.title = isSir ? meta.sirTitle : meta.appTitle;
+      const isRec = document.body.classList.contains('rec-page-body');
+      document.title = isRec ? meta.recTitle : isSir ? meta.sirTitle : meta.appTitle;
     }
     const langToggle = document.getElementById('langToggle');
     if (langToggle) {

@@ -1,0 +1,13 @@
+# Blueprint Render: https://render.com/docs/blueprint-spec
+# Tạo Web Service → chọn repo → Render đọc file này (hoặc tạo tay theo DEPLOY_RENDER.md).
+services:
+  - type: web
+    name: mo-phong-sir
+    runtime: python
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --access-logfile -
+    healthCheckPath: /
+    envVars:
+      - key: MPLBACKEND
+        value: Agg

@@ -27,6 +27,7 @@ const I18N = {
     'brand.subtitle': 'Phân tích mạng & lan truyền',
     'nav.overview': 'Tổng quan',
     'nav.sirPageLong': 'Trang mô phỏng SIR',
+    'nav.recsPage': 'Gợi ý can thiệp',
     'sidebar.nodes': 'Số nút (node)',
     'sidebar.edges': 'Số cạnh (edge)',
     'sidebar.interaction': 'Loại tương tác',
@@ -56,18 +57,14 @@ const I18N = {
     'dashboard.metricUsers': 'Tổng tài khoản',
     'dashboard.metricEdges': 'Tổng quan hệ',
     'dashboard.metricEngagement': 'Tương tác',
-    'dashboard.metricHighRisk': 'Tài khoản nguy cơ cao',
     'dashboard.metricFootnote': 'Ước lượng từ mạng',
     'dashboard.graphTitle': 'Bản đồ mạng',
-    'dashboard.graphSub': 'Node theo mức độ nguy cơ và vai trò.',
+    'dashboard.graphSub': 'Node theo cụm cộng đồng (màu) và vai trò.',
+    'dashboard.clusterLegendTitle': 'Màu nút:',
     'dashboard.labels': 'Nhãn',
     'dashboard.yes': 'Có',
     'dashboard.no': 'Không',
     'dashboard.refresh': 'Làm mới',
-    'dashboard.riskHigh': 'Nguy cơ cao',
-    'dashboard.riskMed': 'Trung bình',
-    'dashboard.riskLow': 'Thấp',
-    'dashboard.riskUnknown': 'Chưa xác định',
     'dashboard.graphHint': 'Nhấp nút để xem chi tiết.',
     'dashboard.sirPanel': 'Kết quả SIR (nhanh)',
     'dashboard.sirNone': 'Chưa chạy',
@@ -82,6 +79,7 @@ const I18N = {
     'brand.subtitle': 'Network analysis & diffusion',
     'nav.overview': 'Overview',
     'nav.sirPageLong': 'SIR simulation page',
+    'nav.recsPage': 'Intervention suggestions',
     'sidebar.nodes': 'Nodes',
     'sidebar.edges': 'Edges',
     'sidebar.interaction': 'Interaction',
@@ -111,18 +109,14 @@ const I18N = {
     'dashboard.metricUsers': 'Accounts',
     'dashboard.metricEdges': 'Relationships',
     'dashboard.metricEngagement': 'Engagement',
-    'dashboard.metricHighRisk': 'High-risk accounts',
     'dashboard.metricFootnote': 'Estimated from graph',
     'dashboard.graphTitle': 'Network map',
-    'dashboard.graphSub': 'Nodes colored by risk and role.',
+    'dashboard.graphSub': 'Nodes by community cluster (color) and role.',
+    'dashboard.clusterLegendTitle': 'Node color:',
     'dashboard.labels': 'Labels',
     'dashboard.yes': 'On',
     'dashboard.no': 'Off',
     'dashboard.refresh': 'Refresh',
-    'dashboard.riskHigh': 'High risk',
-    'dashboard.riskMed': 'Medium',
-    'dashboard.riskLow': 'Low',
-    'dashboard.riskUnknown': 'Unknown',
     'dashboard.graphHint': 'Click a node to see details.',
     'dashboard.sirPanel': 'SIR results (quick)',
     'dashboard.sirNone': 'Not run',
@@ -306,27 +300,6 @@ function hideLoading(element) {
   if (overlay) overlay.remove();
 }
 
-const DEFAULT_RECOMMENDATIONS = [
-  { icon: '🎯', text: 'Kiểm soát luồng thông tin tại các account nguy cơ cao', priority: 'Ưu tiên 1', style: 'red' },
-  { icon: '👤', text: 'Giám sát tài khoản trung gian có mức betweenness lớn', priority: 'Ưu tiên 2', style: 'orange' },
-  { icon: '📈', text: 'Tăng cảnh báo với nhóm có tương tác đột biến', priority: 'Ưu tiên 3', style: 'green' },
-  { icon: '🛡️', text: 'Thiết lập chế độ kiểm duyệt cho cluster chưa xác định', priority: 'Ưu tiên 4', style: 'green' }
-];
-
-const riskBadgeMap = {
-  High: 'danger',
-  Medium: 'orange',
-  Low: 'green',
-  Unknown: 'small'
-};
-
-const riskColor = {
-  High: '#d63939',
-  Medium: '#f2944f',
-  Low: '#0f9d58',
-  Unknown: '#9ca3af'
-};
-
 let graphData = null;
 let currentScale = 1;
 let selectedNodeId = null;
@@ -371,7 +344,6 @@ function applySummary(data) {
   document.getElementById('metric-users').textContent = formatNumber(data.nodes);
   document.getElementById('metric-relationships').textContent = formatNumber(data.edges);
   document.getElementById('metric-engagement').textContent = `${formatNumber(Math.round(data.edges * 12.5))}`;
-  document.getElementById('metric-high-risk').textContent = `${formatNumber(Math.round(data.nodes * 0.068))}`;
   document.getElementById('footerTimestamp').textContent = data.timestamp;
   const dd = document.getElementById('sidebar-data-date');
   if (dd) dd.textContent = data.data_date || dd.textContent;
@@ -390,7 +362,6 @@ function renderTopNodes(topNodes) {
       <td>${node.degree.toFixed(2)}</td>
       <td>${node.betweenness.toFixed(3)}</td>
       <td>${node.eigenvector.toFixed(3)}</td>
-      <td><span class="badge ${riskBadgeMap[node.risk] || 'small'}">${node.risk_score}</span></td>
     `;
     tbody.appendChild(tr);
     tr.addEventListener('click', () => {
@@ -413,25 +384,51 @@ function renderClusters(clusters) {
   });
 }
 
-function renderRecommendations(items = DEFAULT_RECOMMENDATIONS) {
-  const list = document.getElementById('recommendationList');
-  list.innerHTML = '';
-  items.forEach((item) => {
-    const li = document.createElement('li');
-    li.className = `recommendation-item ${item.style}`;
-    li.innerHTML = `
-      <div>${item.icon} ${item.text}</div>
-      <strong>${item.priority}</strong>
-    `;
-    list.appendChild(li);
+function renderClusterLegend(clusters) {
+  const wrap = document.getElementById('clusterLegendItems');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  (clusters || []).forEach((c) => {
+    const span = document.createElement('span');
+    const dot = document.createElement('span');
+    dot.className = 'cluster-legend-dot';
+    dot.style.background = c.color;
+    span.appendChild(dot);
+    span.appendChild(document.createTextNode(`${c.name} (${c.count})`));
+    wrap.appendChild(span);
   });
 }
 
 function renderProfile(node) {
-  if (!node) return;
+  const nameEl = document.getElementById('selectedName');
+  const descEl = document.getElementById('selectedDescription');
+  if (!node) {
+    if (nameEl) nameEl.textContent = '—';
+    const cb = document.getElementById('selectedClusterBadge');
+    if (cb) {
+      cb.textContent = '—';
+      cb.style.borderLeft = '';
+    }
+    document.getElementById('selectedFollowers').textContent = '0';
+    document.getElementById('selectedPosts').textContent = '0';
+    document.getElementById('selectedShares').textContent = '0';
+    document.getElementById('selectedComments').textContent = '0';
+    if (descEl) {
+      descEl.textContent =
+        graphData && graphData.ready === false && graphData.hint
+          ? graphData.hint
+          : getLang() === 'en'
+            ? 'Select a node on the graph.'
+            : 'Chọn một nút trên đồ thị.';
+    }
+    return;
+  }
   document.getElementById('selectedName').textContent = node.name;
-  document.getElementById('selectedRisk').textContent = `${node.risk} nguy cơ`;
-  document.getElementById('selectedRisk').className = `badge ${riskBadgeMap[node.risk] || 'small'}`;
+  const cb = document.getElementById('selectedClusterBadge');
+  if (cb) {
+    cb.textContent = node.cluster || '—';
+    cb.style.borderLeft = `4px solid ${node.cluster_color || '#9ca3af'}`;
+  }
   document.getElementById('selectedFollowers').textContent = formatNumber(node.followers);
   document.getElementById('selectedPosts').textContent = formatNumber(node.posts);
   document.getElementById('selectedShares').textContent = formatNumber(node.shares);
@@ -477,7 +474,7 @@ function drawGraph() {
     circle.setAttribute('cx', node.x);
     circle.setAttribute('cy', node.y);
     circle.setAttribute('r', node.radius);
-    circle.setAttribute('fill', riskColor[node.risk] || '#9ca3af');
+    circle.setAttribute('fill', node.color || node.cluster_color || '#94a3b8');
     circle.setAttribute('stroke', '#ffffff');
     circle.setAttribute('stroke-width', selectedNodeId === node.id ? '4' : '1.5');
     circle.setAttribute('cursor', 'pointer');
@@ -526,12 +523,20 @@ async function loadDashboard() {
   try {
     const graph = await fetchJson('/api/graph');
     graphData = graph;
-    selectedNodeId = graphData.top_nodes?.[0]?.id || graphData.nodes_data?.[0]?.id;
+    if (graph.ready === false && graph.hint) {
+      toast(graph.hint, 'info', 4500);
+    }
+    selectedNodeId =
+      graph.top_nodes?.[0]?.id ?? graph.nodes_data?.[0]?.id ?? null;
     applySummary(graphData);
-    renderTopNodes(graphData.top_nodes);
-    renderClusters(graphData.clusters);
-    renderRecommendations();
-    renderProfile(graphData.nodes_data.find((item) => item.id === selectedNodeId));
+    renderTopNodes(graph.top_nodes || []);
+    renderClusters(graph.clusters || []);
+    renderClusterLegend(graph.clusters || []);
+    renderProfile(
+      selectedNodeId != null
+        ? graph.nodes_data.find((item) => item.id === selectedNodeId)
+        : null
+    );
     drawGraph();
   } catch (error) {
     showError('Không thể tải dữ liệu từ server: ' + error.message);

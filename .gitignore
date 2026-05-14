@@ -1,0 +1,18 @@
+# Dữ liệu sinh tại runtime & Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+env/
+
+# Output mạng / mô phỏng (không commit lên git)
+output_*/
+output_uploaded_*/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
