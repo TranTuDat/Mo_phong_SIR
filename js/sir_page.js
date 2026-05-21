@@ -11,186 +11,15 @@
   const resultsByKey = { pure: null };
   /** @type {Record<string, object>} key = `${strategy}:${intervention_day}` */
   const dynamicRuns = {};
+  /** 'pure' | `${strategy}:${intervention_day}` — mẫu đang xem ở tab Đồ thị / Chỉ số */
+  let activeSirRunKey = 'pure';
 
-  const I18N = {
-    vi: {
-      'sir.docTitle': 'Mô phỏng SIR — InfoOps Analyzer',
-      'brand.sirSubtitle': 'Mô hình SIR trên đồ thị xã hội',
-      'nav.networkOverview': 'Tổng quan mạng',
-      'nav.sirActive': 'Mô phỏng SIR',
-      'nav.recsPage': 'Gợi ý can thiệp',
-      'sidebar.nodesShort': 'Node (bộ hiện tại)',
-      'sidebar.edgesShort': 'Edge',
-      'sir.pageTitle': 'Mô phỏng SIR trên mạng xã hội',
-      'sir.backDash': 'Về tổng quan',
-      'sir.intro':
-        'Điều chỉnh tham số rồi chạy mô phỏng trên <strong>bộ dữ liệu output mới nhất</strong>. Sau khi chạy, hệ thống hiển thị biểu đồ S–I–R, đỉnh dịch và ngày kết thúc.',
-      'sir.params': 'Tham số mô hình',
-      'sir.tabPure': 'SIR thuần',
-      'sir.tabDyn': 'SIR + can thiệp',
-      'sir.beta': 'Tỷ lệ lây (β)',
-      'sir.gamma': 'Tỷ lệ hồi phục (γ)',
-      'sir.maxDays': 'Số ngày tối đa',
-      'sir.seed': 'Seed',
-      'sir.topK': 'Top-k miễn nhiễm',
-      'sir.strategy': 'Chiến lược can thiệp',
-      'sir.strategyBet': 'Theo betweenness',
-      'sir.strategyDeg': 'Theo degree',
-      'sir.strategyEig': 'Theo eigenvector',
-      'sir.interventionDay': 'Ngày can thiệp',
-      'sir.interventionDayHint': '(1 = ngày đầu tiên của mô phỏng; có thể chạy nhiều lần với ngày khác nhau để so sánh)',
-      'sir.runPure': 'Chạy SIR thuần',
-      'sir.runDyn': 'Chạy SIR + can thiệp',
-      'sir.stripPeak': 'Ngày đỉnh',
-      'sir.stripPeakI': 'Max I',
-      'sir.stripFinal': 'Ngày kết thúc',
-      'sir.stripS': 'S cuối',
-      'sir.tabChart': 'Đồ thị',
-      'sir.tabStats': 'Chỉ số',
-      'sir.tabCompare': 'So sánh',
-      'sir.chartFoot': 'Trục ngang: ngày mô phỏng · Trục dọc: số cá thể trong từng trạng thái.',
-      'sir.statPeakLabel': 'Ngày đỉnh',
-      'sir.statPeakI': 'Max I',
-      'sir.statFinal': 'Ngày kết thúc',
-      'sir.statR': 'R cuối',
-      'sir.detailTitle': 'Chi tiết lần chạy',
-      'sir.rowModel': 'Mô hình',
-      'sir.rowRates': 'β / γ',
-      'sir.rowOut': 'Thư mục kết quả',
-      'sir.rowNote': 'Ghi chú',
-      'sir.cmpMetric': 'Chỉ số',
-      'sir.cmpPure': 'SIR thuần',
-      'sir.cmpDynCol': 'Can thiệp',
-      'sir.cmpPeak': 'Ngày đỉnh',
-      'sir.cmpPeakI': 'Đỉnh I',
-      'sir.cmpFinal': 'Ngày kết thúc',
-      'sir.footerNote': 'Dữ liệu mạng (gốc output_*) + simulation_sir/pure | simulation_sir/dynamic/…',
-      'sir.hintCompareHtml':
-        'Gợi ý: chạy <strong>SIR thuần</strong> trước, sau đó chạy một hoặc nhiều lần <strong>SIR + can thiệp</strong> (có thể đổi chiến lược và/hoặc <strong>ngày can thiệp</strong>) rồi mở tab <strong>So sánh</strong>.',
-      'sir.dataHintHtml':
-        'Chưa có output. Về <a href=\"/\">Tổng quan</a> và bấm «Tạo dữ liệu» trước.',
-      status_running_pure: 'Đang chạy SIR thuần trên mạng hiện tại…',
-      status_running_dyn: 'Đang chạy SIR + can thiệp…',
-      status_done_pure: 'Hoàn thành SIR thuần.',
-      status_done_dyn: 'Hoàn thành SIR + can thiệp.',
-      status_need_params: 'Vui lòng điền đầy đủ tham số',
-      status_restored_sir: 'Đã tải lại {n} mô phỏng đã lưu trong thư mục output.',
-    },
-    en: {
-      'sir.docTitle': 'SIR Simulation — InfoOps Analyzer',
-      'brand.sirSubtitle': 'SIR model on a social graph',
-      'nav.networkOverview': 'Network overview',
-      'nav.sirActive': 'SIR simulation',
-      'nav.recsPage': 'Intervention suggestions',
-      'sidebar.nodesShort': 'Nodes (current)',
-      'sidebar.edgesShort': 'Edges',
-      'sir.pageTitle': 'SIR simulation on social network',
-      'sir.backDash': 'Back to dashboard',
-      'sir.intro':
-        'Tune parameters and run on the <strong>latest output dataset</strong>. After running, the system shows the S–I–R chart, peak day, and end day.',
-      'sir.params': 'Model parameters',
-      'sir.tabPure': 'Pure SIR',
-      'sir.tabDyn': 'SIR + intervention',
-      'sir.beta': 'Transmission (β)',
-      'sir.gamma': 'Recovery (γ)',
-      'sir.maxDays': 'Max days',
-      'sir.seed': 'Seed',
-      'sir.topK': 'Top-k immunized',
-      'sir.strategy': 'Intervention strategy',
-      'sir.strategyBet': 'By betweenness',
-      'sir.strategyDeg': 'By degree',
-      'sir.strategyEig': 'By eigenvector',
-      'sir.interventionDay': 'Intervention day',
-      'sir.interventionDayHint': '(1 = first simulation day; run again with another day to compare)',
-      'sir.runPure': 'Run pure SIR',
-      'sir.runDyn': 'Run SIR + intervention',
-      'sir.stripPeak': 'Peak day',
-      'sir.stripPeakI': 'Peak I',
-      'sir.stripFinal': 'End day',
-      'sir.stripS': 'Final S',
-      'sir.tabChart': 'Chart',
-      'sir.tabStats': 'Stats',
-      'sir.tabCompare': 'Compare',
-      'sir.chartFoot': 'X-axis: day · Y-axis: population in each state.',
-      'sir.statPeakLabel': 'Peak day',
-      'sir.statPeakI': 'Peak I',
-      'sir.statFinal': 'End day',
-      'sir.statR': 'Final R',
-      'sir.detailTitle': 'Run details',
-      'sir.rowModel': 'Model',
-      'sir.rowRates': 'β / γ',
-      'sir.rowOut': 'Results folder',
-      'sir.rowNote': 'Note',
-      'sir.cmpMetric': 'Metric',
-      'sir.cmpPure': 'Pure SIR',
-      'sir.cmpDynCol': 'Intervention',
-      'sir.cmpPeak': 'Peak day',
-      'sir.cmpPeakI': 'Peak I',
-      'sir.cmpFinal': 'End day',
-      'sir.footerNote': 'Network CSVs (output_* root) + simulation_sir/pure | simulation_sir/dynamic/…',
-      'sir.hintCompareHtml':
-        'Tip: run <strong>Pure SIR</strong> first, then run <strong>SIR + intervention</strong> one or more times (change strategy and/or <strong>intervention day</strong>), then open <strong>Compare</strong>.',
-      'sir.dataHintHtml':
-        'No output yet. Go to <a href=\"/\">Dashboard</a> and click “Generate data” first.',
-      status_running_pure: 'Running pure SIR…',
-      status_running_dyn: 'Running SIR + intervention…',
-      status_done_pure: 'Pure SIR completed.',
-      status_done_dyn: 'SIR + intervention completed.',
-      status_need_params: 'Please provide all parameters',
-      status_restored_sir: 'Reloaded {n} saved simulation(s) from the output folder.',
-    }
-  };
+  function t(key, vars) {
+    return window.I18N && window.I18N.t ? window.I18N.t(key, vars) : key;
+  }
 
   function getLang() {
-    const raw = localStorage.getItem('lang') || 'vi';
-    return raw === 'en' ? 'en' : 'vi';
-  }
-
-  function setLang(lang) {
-    const next = lang === 'en' ? 'en' : 'vi';
-    localStorage.setItem('lang', next);
-    document.documentElement.lang = next;
-    const btn = document.getElementById('langToggle');
-    if (btn) {
-      btn.textContent = next === 'en' ? 'VI' : 'EN';
-      btn.title = next === 'en' ? 'Tiếng Việt' : 'English';
-    }
-    translatePage(next);
-  }
-
-  function translatePage(lang) {
-    const dict = I18N[lang] || I18N.vi;
-    document.querySelectorAll('[data-i18n]').forEach((el) => {
-      const key = el.getAttribute('data-i18n');
-      if (!key) return;
-      if (dict[key] != null) el.textContent = dict[key];
-    });
-    document.querySelectorAll('[data-i18n-html]').forEach((el) => {
-      const key = el.getAttribute('data-i18n-html');
-      if (!key) return;
-      if (dict[key] != null) el.innerHTML = dict[key];
-    });
-    const t = dict['sir.docTitle'];
-    if (t) document.title = t;
-    if (resultsByKey.pure && Object.keys(dynamicRuns).length) {
-      updateComparisonTableSim();
-    }
-  }
-
-  function initTheme() {
-    const saved = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', saved);
-    const t = document.getElementById('themeToggle');
-    if (t) t.textContent = saved === 'dark' ? '☀️' : '🌙';
-  }
-
-  function toggleTheme() {
-    const cur = document.documentElement.getAttribute('data-theme');
-    const next = cur === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
-    const t = document.getElementById('themeToggle');
-    if (t) t.textContent = next === 'dark' ? '☀️' : '🌙';
+    return window.I18N && window.I18N.getLang ? window.I18N.getLang() : 'vi';
   }
 
   async function fetchJson(path) {
@@ -230,6 +59,132 @@
     if (dynEl) dynEl.style.display = model === 'dynamic' ? 'flex' : 'none';
   }
 
+  function getActiveSirResultTab() {
+    const active = document.querySelector('.sim-results-panel .result-tab-content.active');
+    if (!active) return 'chart';
+    if (active.id === 'sir-stats-tab') return 'stats';
+    if (active.id === 'sir-comparison-tab') return 'comparison';
+    return 'chart';
+  }
+
+  function dynamicRunKeyFromRun(run) {
+    const strat = run.strategy || 'betweenness';
+    const day = run.intervention_day != null ? run.intervention_day : 1;
+    return `${strat}:${day}`;
+  }
+
+  function strategyShortName(strat) {
+    if (strat === 'degree') return 'degree';
+    if (strat === 'eigenvector') return 'eigenvector';
+    return 'betweenness';
+  }
+
+  function formatDynamicRunLabel(run, key) {
+    const strat = run?.strategy || (key && key.split(':')[0]) || 'betweenness';
+    const day =
+      run?.intervention_day != null ? run.intervention_day : parseInt((key || '').split(':')[1], 10) || 1;
+    const topK = run?.top_k != null ? run.top_k : '—';
+    return t('sir.runDynFmt', {
+      strategy: strategyShortName(strat),
+      day,
+      k: topK,
+    });
+  }
+
+  function listSirRunOptions() {
+    const opts = [];
+    if (resultsByKey.pure) opts.push({ key: 'pure', type: 'pure' });
+    for (const k of Object.keys(dynamicRuns).sort()) {
+      opts.push({ key: k, type: 'dynamic', run: dynamicRuns[k] });
+    }
+    return opts;
+  }
+
+  function getActiveSirRunData() {
+    if (activeSirRunKey === 'pure') {
+      return { model: 'pure', data: resultsByKey.pure };
+    }
+    return { model: 'dynamic', data: dynamicRuns[activeSirRunKey] };
+  }
+
+  function syncSirRunPicker(preferredKey) {
+    const picker = document.getElementById('sirRunPicker');
+    const sel = document.getElementById('sirRunSelect');
+    const countBadge = document.getElementById('sirRunPickerCount');
+    if (!picker || !sel) return;
+    const opts = listSirRunOptions();
+    const hasDynamic = opts.some((o) => o.type === 'dynamic');
+    picker.hidden = !hasDynamic;
+    if (!hasDynamic) return;
+
+    sel.replaceChildren();
+    for (const o of opts) {
+      const opt = document.createElement('option');
+      opt.value = o.key;
+      opt.textContent =
+        o.type === 'pure' ? t('sir.runPureOpt') : formatDynamicRunLabel(o.run, o.key);
+      sel.appendChild(opt);
+    }
+    const keys = opts.map((o) => o.key);
+    let next = keys[keys.length - 1];
+    if (preferredKey && keys.includes(preferredKey)) next = preferredKey;
+    else if (keys.includes(activeSirRunKey)) next = activeSirRunKey;
+    sel.value = next;
+    const dynCount = opts.filter((o) => o.type === 'dynamic').length;
+    if (countBadge) {
+      countBadge.textContent = dynCount >= 2 ? t('sir.runCount', { n: dynCount }) : '';
+      countBadge.hidden = dynCount < 2;
+    }
+    resizeSirCharts();
+  }
+
+  function setActiveSirRun(key) {
+    if (key === 'pure') {
+      if (!resultsByKey.pure) return;
+      activeSirRunKey = 'pure';
+      currentSimModel = 'pure';
+      pureResults = resultsByKey.pure;
+    } else {
+      const run = dynamicRuns[key];
+      if (!run) return;
+      activeSirRunKey = key;
+      currentSimModel = 'dynamic';
+      dynamicResults = run;
+    }
+    const sel = document.getElementById('sirRunSelect');
+    if (sel && sel.value !== key) sel.value = key;
+
+    const { model, data } = getActiveSirRunData();
+    if (!data) return;
+    const modelLabel =
+      model === 'pure' ? 'SIR thuần' : 'SIR + can thiệp (miễn nhiễm động)';
+    updateStatsSim(data, modelLabel);
+    updateResultsStrip(data);
+    if (resultsByKey.pure && Object.keys(dynamicRuns).length) {
+      updateComparisonTableSim();
+    }
+    refreshSirChartsForTab(getActiveSirResultTab());
+    resizeSirCharts();
+  }
+
+  function sirChartTitleForModel(model) {
+    if (model === 'pure') {
+      return t('sir.chartPure') || (getLang() === 'en' ? 'S–I–R curve (pure SIR)' : 'Đường cong S-I-R (SIR thuần)');
+    }
+    const base = t('sir.chartDyn') || 'Đường cong S-I-R (SIR + can thiệp)';
+    if (activeSirRunKey !== 'pure' && dynamicRuns[activeSirRunKey]) {
+      return `${base} — ${formatDynamicRunLabel(dynamicRuns[activeSirRunKey], activeSirRunKey)}`;
+    }
+    return base;
+  }
+
+  function resizeSirCharts() {
+    requestAnimationFrame(() => {
+      if (simLineChart) simLineChart.resize();
+      if (simCompareChart) simCompareChart.resize();
+    });
+  }
+
   function switchSirResultTab(tab, evt) {
     document.querySelectorAll('.sim-results-panel .result-tab-content').forEach((el) => {
       el.classList.remove('active');
@@ -239,7 +194,29 @@
     });
     const pane = document.getElementById(`sir-${tab}-tab`);
     if (pane) pane.classList.add('active');
-    if (evt && evt.currentTarget) evt.currentTarget.classList.add('active');
+    const tabBtn =
+      (evt && evt.currentTarget) ||
+      document.querySelector(`.sim-results-panel .result-tab-btn[data-sir-tab="${tab}"]`);
+    if (tabBtn) tabBtn.classList.add('active');
+    requestAnimationFrame(() => {
+      refreshSirChartsForTab(tab);
+      resizeSirCharts();
+    });
+  }
+
+  /** Vẽ lại biểu đồ sau khi tab hiển thị (tránh canvas 0×0 khi tab ẩn). */
+  function refreshSirChartsForTab(tab) {
+    const { model, data } = getActiveSirRunData();
+    if (tab === 'chart') {
+      if (data?.history?.length) drawSirSimChart(data.history, sirChartTitleForModel(model));
+    } else if (tab === 'comparison') {
+      if (resultsByKey.pure && Object.keys(dynamicRuns).length) {
+        drawSirComparisonChart();
+        updateComparisonTableSim();
+      }
+    } else if (tab === 'stats' && data) {
+      updateStatsSim(data, model === 'pure' ? 'SIR thuần' : 'SIR + can thiệp (miễn nhiễm động)');
+    }
   }
 
   function setupSirRangeInputs() {
@@ -299,11 +276,11 @@
     const days = parseInt(document.getElementById('pureDays').value, 10);
     const seed = parseInt(document.getElementById('pureSeed').value, 10);
     if (!transmission || !recovery || !days) {
-      showSimStatus(I18N[getLang()].status_need_params, 'error');
+      showSimStatus(t('msgs.errParams'), 'error');
       return;
     }
     btn.disabled = true;
-    showSimStatus(I18N[getLang()].status_running_pure, 'loading');
+    showSimStatus(t('msgs.runningPure'), 'loading');
     try {
       const response = await fetch('/api/simulate-sir', {
         method: 'POST',
@@ -321,12 +298,11 @@
       pureResults = data;
       dynamicResults = null;
       resultsByKey.pure = data;
-      displayPureResults(data);
-      updateResultsStrip(data);
-      showSimStatus(I18N[getLang()].status_done_pure, 'success');
       switchSirResultTab('chart', {
         currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="chart"]'),
       });
+      displayPureResults(data);
+      showSimStatus(t('msgs.donePure'), 'success');
     } catch (error) {
       showSimStatus('Lỗi: ' + error.message, 'error');
     } finally {
@@ -354,11 +330,11 @@
       return;
     }
     if (!transmission || !recovery || !days || !topK) {
-      showSimStatus(I18N[getLang()].status_need_params, 'error');
+      showSimStatus(t('msgs.errParams'), 'error');
       return;
     }
     btn.disabled = true;
-    showSimStatus(I18N[getLang()].status_running_dyn, 'loading');
+    showSimStatus(t('msgs.runningDyn'), 'loading');
     try {
       const response = await fetch('/api/simulate-sir', {
         method: 'POST',
@@ -376,17 +352,14 @@
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Lỗi mô phỏng');
-      dynamicResults = data;
       const rk = `${strategy}:${data.intervention_day != null ? data.intervention_day : interventionDay}`;
       dynamicRuns[rk] = data;
-      displayDynamicResults(data);
-      updateResultsStrip(data);
-      showSimStatus(I18N[getLang()].status_done_dyn, 'success');
-      switchSirResultTab(pureResults ? 'comparison' : 'chart', {
-        currentTarget: document.querySelector(
-          `.sim-results-panel .result-tab-btn[data-sir-tab="${pureResults ? 'comparison' : 'chart'}"]`
-        ),
+      dynamicResults = data;
+      switchSirResultTab('chart', {
+        currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="chart"]'),
       });
+      displayDynamicResults(data, rk);
+      showSimStatus(t('msgs.doneDyn'), 'success');
     } catch (error) {
       showSimStatus('Lỗi: ' + error.message, 'error');
     } finally {
@@ -422,32 +395,23 @@
   }
 
   function displayPureResults(data) {
-    currentSimModel = 'pure';
     resultsByKey.pure = data;
-    updateStatsSim(data, 'SIR thuần');
-    drawSirSimChart(data.history, 'Đường cong S-I-R (SIR thuần)');
-    if (Object.keys(dynamicRuns).length) {
-      drawSirComparisonChart();
-      updateComparisonTableSim();
-    }
+    pureResults = data;
+    syncSirRunPicker('pure');
+    setActiveSirRun('pure');
   }
 
-  function displayDynamicResults(data) {
-    currentSimModel = 'dynamic';
-    updateStatsSim(data, 'SIR + can thiệp (miễn nhiễm động)');
-    // Always refresh comparison if pure exists and at least one dynamic run exists
-    if (resultsByKey.pure && Object.keys(dynamicRuns).length) {
-      drawSirComparisonChart();
-      updateComparisonTableSim();
-      displayComparisonSir();
-      return;
-    }
-    drawSirSimChart(data.history, 'Đường cong S-I-R (SIR + can thiệp)');
+  function displayDynamicResults(data, runKey) {
+    const rk = runKey || dynamicRunKeyFromRun(data);
+    dynamicRuns[rk] = data;
+    dynamicResults = data;
+    syncSirRunPicker(rk);
+    setActiveSirRun(rk);
   }
 
   function drawSirSimChart(history, titleText) {
     const canvas = document.getElementById('sirSimChart');
-    if (!canvas || typeof Chart === 'undefined') return;
+    if (!canvas || typeof Chart === 'undefined' || !history || !history.length) return;
     const ctx = canvas.getContext('2d');
     if (simLineChart) simLineChart.destroy();
     const labels = history.map((h) => h.day);
@@ -509,6 +473,7 @@
         },
       },
     });
+    resizeSirCharts();
   }
 
   function drawSirComparisonChart() {
@@ -550,7 +515,7 @@
 
     const datasets = [
       {
-        label: getLang() === 'en' ? 'Pure SIR — I' : 'SIR thuần — I',
+        label: t('sir.datasetPureI'),
         data: pureI,
         borderColor: '#ea4335',
         backgroundColor: 'rgba(234, 67, 53, 0.08)',
@@ -567,10 +532,8 @@
         run.intervention_day != null ? run.intervention_day : parseInt(key.split(':')[1], 10) || 1;
       const sShort =
         strat === 'degree' ? 'degree' : strat === 'eigenvector' ? 'eigenvector' : 'betweenness';
-      const label =
-        getLang() === 'en'
-          ? `Intervention (${sShort}, day ${day}) — I`
-          : `Can thiệp (${sShort}, ngày ${day}) — I`;
+      const dayWord = getLang() === 'en' ? 'day' : 'ngày';
+      const label = `${t('sir.cmpDyn')} (${sShort}, ${dayWord} ${day}) — I`;
       const [bc, fill] = palette[idx % palette.length];
       datasets.push({
         label,
@@ -596,7 +559,7 @@
           legend: { position: 'top' },
           title: {
             display: true,
-            text: getLang() === 'en' ? 'Compare concurrent infected (I)' : 'So sánh số ca nhiễm đồng thời (I)',
+            text: t('sir.chartCmp'),
           },
         },
         scales: {
@@ -604,6 +567,7 @@
         },
       },
     });
+    resizeSirCharts();
   }
 
   function updateComparisonTableSim() {
@@ -614,15 +578,14 @@
 
     const keys = Object.keys(dynamicRuns).sort();
     const lang = getLang();
-    const dict = I18N[lang] || I18N.vi;
 
     headRow.replaceChildren();
     const thMetric = document.createElement('th');
     thMetric.setAttribute('data-i18n', 'sir.cmpMetric');
-    thMetric.textContent = dict['sir.cmpMetric'];
+    thMetric.textContent = t('sir.cmpMetric');
     const thPure = document.createElement('th');
     thPure.setAttribute('data-i18n', 'sir.cmpPure');
-    thPure.textContent = dict['sir.cmpPure'];
+    thPure.textContent = t('sir.cmpPure');
     headRow.appendChild(thMetric);
     headRow.appendChild(thPure);
     for (const k of keys) {
@@ -633,7 +596,7 @@
       const sShort =
         strat === 'degree' ? 'degree' : strat === 'eigenvector' ? 'eigenvector' : 'betweenness';
       const th = document.createElement('th');
-      th.textContent = `${dict['sir.cmpDynCol']}: ${sShort}, ${lang === 'en' ? 'day' : 'ngày'} ${day}`;
+      th.textContent = `${t('sir.cmpDyn')}: ${sShort}, ${lang === 'en' ? 'day' : 'ngày'} ${day}`;
       headRow.appendChild(th);
     }
 
@@ -647,7 +610,7 @@
       const tr = document.createElement('tr');
       const td0 = document.createElement('td');
       td0.setAttribute('data-i18n', def.tKey);
-      td0.textContent = dict[def.tKey];
+      td0.textContent = t(def.tKey);
       const td1 = document.createElement('td');
       td1.className = 'tabular-nums';
       td1.textContent = String(pure[def.pureKey]);
@@ -663,12 +626,6 @@
       }
       bodyEl.appendChild(tr);
     }
-  }
-
-  function displayComparisonSir() {
-    switchSirResultTab('comparison', {
-      currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="comparison"]'),
-    });
   }
 
   async function fetchSirResultsFromApi(datasetFolder, model, strategy, interventionDay) {
@@ -729,29 +686,29 @@
       }
     }
     if (!restored) return;
-    const msg = (I18N[getLang()] || I18N.vi).status_restored_sir || '';
-    showSimStatus(msg.replace(/\{n\}/g, String(restored)), 'success');
+    showSimStatus(t('msgs.restoredSir', { n: restored }), 'success');
     if (resultsByKey.pure && Object.keys(dynamicRuns).length) {
       const dkLast = Object.keys(dynamicRuns).sort();
-      dynamicResults = dynamicRuns[dkLast[dkLast.length - 1]];
-      drawSirComparisonChart();
-      updateComparisonTableSim();
-      switchSirResultTab('comparison', {
-        currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="comparison"]'),
+      const lastKey = dkLast[dkLast.length - 1];
+      switchSirResultTab('chart', {
+        currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="chart"]'),
       });
+      syncSirRunPicker(lastKey);
+      setActiveSirRun(lastKey);
     } else if (resultsByKey.pure) {
-      displayPureResults(resultsByKey.pure);
+      syncSirRunPicker('pure');
+      switchSirResultTab('chart', {
+        currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="chart"]'),
+      });
+      setActiveSirRun('pure');
     } else {
       const dk = Object.keys(dynamicRuns).sort();
       if (dk.length) {
-        const last = dynamicRuns[dk[dk.length - 1]];
-        dynamicResults = last;
-        displayDynamicResults(last);
+        const lastKey = dk[dk.length - 1];
+        syncSirRunPicker(lastKey);
+        setActiveSirRun(lastKey);
       }
     }
-    const dk = Object.keys(dynamicRuns).sort();
-    const stripData = resultsByKey.pure || (dk.length ? dynamicRuns[dk[dk.length - 1]] : null);
-    if (stripData) updateResultsStrip(stripData);
     const strip = document.getElementById('sirResultsStrip');
     if (strip) strip.hidden = false;
   }
@@ -803,12 +760,46 @@
     }
   }
 
+  async function reloadAfterDataChange() {
+    pureResults = null;
+    dynamicResults = null;
+    resultsByKey.pure = null;
+    activeSirRunKey = 'pure';
+    Object.keys(dynamicRuns).forEach((k) => delete dynamicRuns[k]);
+    const picker = document.getElementById('sirRunPicker');
+    if (picker) picker.hidden = true;
+    if (simLineChart) {
+      simLineChart.destroy();
+      simLineChart = null;
+    }
+    if (simCompareChart) {
+      simCompareChart.destroy();
+      simCompareChart = null;
+    }
+    const summary = await loadSidebarSummary();
+    await tryLoadFromUrl();
+    if (!new URLSearchParams(window.location.search).get('output_dir')) {
+      await restoreSavedSirRuns(summary);
+    }
+  }
+
+  window.onSharedDataReady = reloadAfterDataChange;
+
   async function init() {
-    initTheme();
-    document.getElementById('themeToggle')?.addEventListener('click', toggleTheme);
-    setLang(getLang());
-    document.getElementById('langToggle')?.addEventListener('click', () => setLang(getLang() === 'en' ? 'vi' : 'en'));
+    window.SharedNav?.init({
+      onLangChange: () => {
+        syncSirRunPicker(activeSirRunKey);
+        refreshSirChartsForTab(getActiveSirResultTab());
+        resizeSirCharts();
+      },
+    });
     setupSirRangeInputs();
+    const resultsPanel = document.querySelector('.sir-page-main .sim-results-panel');
+    if (resultsPanel && typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => resizeSirCharts());
+      ro.observe(resultsPanel);
+    }
+    window.addEventListener('resize', resizeSirCharts);
     document.querySelectorAll('.sim-tab-model').forEach((btn) => {
       btn.addEventListener('click', () => switchModel(btn.dataset.model));
     });
@@ -817,6 +808,9 @@
     });
     document.getElementById('btnRunPureSimulation')?.addEventListener('click', runPureSimulation);
     document.getElementById('btnRunDynamicSimulation')?.addEventListener('click', runDynamicSimulation);
+    document.getElementById('sirRunSelect')?.addEventListener('change', (e) => {
+      setActiveSirRun(e.target.value);
+    });
     const summary = await loadSidebarSummary();
     await tryLoadFromUrl();
     if (!new URLSearchParams(window.location.search).get('output_dir')) {

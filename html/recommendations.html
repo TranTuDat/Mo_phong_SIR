@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title data-i18n="rec.docTitle">Gợi ý can thiệp — InfoOps Analyzer</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="dashboard-body dash-pro rec-page-body">
+  <div class="app-shell">
+    <aside class="sidebar dash-sidebar">
+      <div class="dash-sidebar-inner">
+        <div class="dash-sidebar-scroll">
+          <div class="brand dash-brand">
+            <div class="brand-mark dash-brand-icon" aria-hidden="true">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2.2 4.2 5.4v5.4c0 4.2 2.8 8.1 7.8 9.6.3.1.6.1.9 0 5-1.5 7.8-5.4 7.8-9.6V5.4L12 2.2z" fill="rgba(255,255,255,.2)" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                <path d="M8 11h2.5v4H8zm5.5-2H16v6h-2.5V9z" fill="currentColor"/>
+              </svg>
+            </div>
+            <div><h1>InfoOps Analyzer</h1></div>
+          </div>
+          <nav class="menu dash-nav" aria-label="Menu chính">
+            <a href="/" class="menu-item menu-item-link">
+              <span class="dash-nav-glyph" aria-hidden="true"></span>
+              <span data-i18n="nav.overview">Tổng quan</span>
+            </a>
+            <button type="button" class="menu-item menu-item-btn" id="menuOpenData">
+              <span class="dash-nav-glyph" aria-hidden="true"></span>
+              <span data-i18n="nav.dataImport">Nhập dữ liệu</span>
+            </button>
+            <hr class="dash-nav-divider" aria-hidden="true" />
+            <span class="menu-item active">
+              <span class="dash-nav-glyph dash-nav-glyph--active" aria-hidden="true"></span>
+              <span data-i18n="nav.recsPage">Đề xuất can thiệp</span>
+            </span>
+            <a href="/simulation" class="menu-item menu-item-link">
+              <span class="dash-nav-glyph" aria-hidden="true"></span>
+              <span data-i18n="nav.sirPageLong">Mô phỏng SIR</span>
+            </a>
+          </nav>
+        </div>
+        <footer class="dash-sidebar-footer">
+          <button type="button" id="btnCleanupOutputs" class="dash-sidebar-action" data-i18n="dashboard.cleanup">Dọn output cũ</button>
+        </footer>
+      </div>
+    </aside>
+
+    <div id="dataGenModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 data-i18n="dashboard.modalTitle">Tạo dữ liệu mạng</h3>
+          <button type="button" class="modal-close" onclick="closeDataGenModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="numUsers" data-i18n="dashboard.lblNumUsers">Số người dùng</label>
+            <input type="number" id="numUsers" value="500" min="10" max="2000" step="10" />
+            <small data-i18n="dashboard.hintUsers">10–2000</small>
+          </div>
+          <div class="form-group">
+            <label for="relationshipProb" data-i18n="dashboard.lblProb">Xác suất có cạnh</label>
+            <input type="number" id="relationshipProb" value="0.025" min="0.001" max="0.1" step="0.001" />
+            <small data-i18n="dashboard.hintProb">0,001–0,1 (càng cao càng dày)</small>
+          </div>
+          <div class="form-group">
+            <label for="randomSeed" data-i18n="dashboard.lblSeed">Seed</label>
+            <input type="number" id="randomSeed" value="42" min="1" max="9999" />
+            <small data-i18n="dashboard.hintSeed">Tái lập kết quả</small>
+          </div>
+          <div class="form-group">
+            <label for="dataSource" data-i18n="dashboard.lblSource">Nguồn</label>
+            <select id="dataSource">
+              <option value="generate" data-i18n="dashboard.srcGen">Sinh ngẫu nhiên</option>
+              <option value="upload" data-i18n="dashboard.srcUp">Tải CSV</option>
+            </select>
+          </div>
+          <div class="form-group" id="fileUploadGroup" style="display: none;">
+            <label for="dataFile" data-i18n="dashboard.lblFile">File CSV</label>
+            <input type="file" id="dataFile" accept=".csv" />
+            <small data-i18n="dashboard.hintCsv">Cột: id, name, …</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" onclick="closeDataGenModal()" data-i18n="dashboard.cancel">Hủy</button>
+          <button type="button" id="btnConfirmGenerate" class="primary" data-i18n="dashboard.confirmGen">Tạo dữ liệu</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="main-panel dash-main">
+      <header class="topbar dash-topbar">
+        <div class="dash-topbar-lead">
+          <h1 class="topbar-title" data-i18n="rec.pageTitle">Đề xuất can thiệp</h1>
+        </div>
+        <div class="dash-topbar-right">
+          <div class="topbar-actions dash-topbar-actions">
+            <button type="button" id="btnAnalyze" class="primary" data-i18n="rec.btnAnalyze">Phân tích lại</button>
+          </div>
+          <div class="shell-tools dash-shell-tools" role="toolbar" aria-label="Giao diện & ngôn ngữ">
+            <button type="button" id="langToggle" class="shell-tool-btn shell-tool-btn--compact" title="English">EN</button>
+            <button type="button" id="themeToggle" class="shell-tool-btn shell-tool-btn--compact" title="Chế độ tối">🌙</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="content-wrap">
+        <main class="content-area dash-content">
+          <p class="sir-intro" data-i18n-html="rec.intro"></p>
+          <p class="sir-hint">
+            <span data-i18n="rec.outputLabel">Bộ dữ liệu</span>:
+            <strong id="recOutputFolder" class="tabular-nums">—</strong>
+          </p>
+          <div id="recStatus" class="status-message sim-status-msg" role="status"></div>
+
+          <section class="card" style="margin-bottom: 20px;">
+            <div class="panel-header">
+              <h3 data-i18n="rec.rationaleTitle">Tiêu chí đề xuất</h3>
+            </div>
+            <p id="recRationale" class="sir-note-small" style="padding: 0 20px 16px;"></p>
+          </section>
+
+          <section class="card" style="margin-bottom: 20px;">
+            <div class="panel-header">
+              <h3 data-i18n="rec.pureTitle">SIR thuần (tham chiếu)</h3>
+            </div>
+            <div class="sir-result-grid" style="padding: 0 20px 20px;">
+              <div>
+                <p class="result-label" data-i18n="rec.tablePeakI">Đỉnh I</p>
+                <p id="recPurePeakI" class="result-value tabular-nums">—</p>
+              </div>
+              <div>
+                <p class="result-label" data-i18n="rec.tablePeakDay">Ngày đỉnh</p>
+                <p id="recPurePeakDay" class="result-value tabular-nums">—</p>
+              </div>
+              <div>
+                <p class="result-label" data-i18n="rec.tableFinal">Ngày kết thúc</p>
+                <p id="recPureFinal" class="result-value tabular-nums">—</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="card" style="margin-bottom: 20px;">
+            <div class="panel-header">
+              <h3 data-i18n="sir.tabCompare">So sánh can thiệp</h3>
+            </div>
+            <div class="table-wrapper" style="padding: 0 12px 16px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th data-i18n="rec.tableStrategy">Chiến lược</th>
+                    <th data-i18n="rec.tablePeakI">Đỉnh I</th>
+                    <th data-i18n="rec.tablePeakDay">Ngày đỉnh</th>
+                    <th data-i18n="rec.tableFinal">Ngày kết thúc</th>
+                    <th data-i18n="rec.tableStatus">Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody id="recStrategiesBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="panel-header">
+              <h3 data-i18n="rec.winnerTitle">Đề xuất</h3>
+            </div>
+            <div style="padding: 0 20px 20px;">
+              <p id="recWinnerSummary" class="sir-note-small">—</p>
+              <h4 data-i18n="rec.nodesTitle" style="margin-top: 16px;">Nút can thiệp</h4>
+              <ul id="recWinnerNodes" class="cluster-list"></ul>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <footer class="app-footer dash-footer">
+        <div><span data-i18n="dashboard.footerVer">Phiên bản</span> 1.0.0</div>
+        <div><span data-i18n="dashboard.footerUpd">Cập nhật</span>: <span class="tabular-nums" id="footerTimestamp">—</span></div>
+      </footer>
+    </div>
+  </div>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/shared-nav.js"></script>
+  <script src="/js/recommendations.js"></script>
+</body>
+</html>

@@ -11,22 +11,6 @@
     return key;
   }
 
-  function initTheme() {
-    const saved = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', saved);
-    const btn = document.getElementById('themeToggle');
-    if (btn) btn.textContent = saved === 'dark' ? '☀️' : '🌙';
-  }
-
-  function toggleTheme() {
-    const cur = document.documentElement.getAttribute('data-theme');
-    const next = cur === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    localStorage.setItem('theme', next);
-    const btn = document.getElementById('themeToggle');
-    if (btn) btn.textContent = next === 'dark' ? '☀️' : '🌙';
-  }
-
   async function fetchJson(url) {
     const r = await fetch(url, { cache: 'no-store' });
     const data = await r.json().catch(() => ({}));
@@ -124,14 +108,10 @@
   }
 
   function init() {
-    initTheme();
-    document.getElementById('themeToggle')?.addEventListener('click', toggleTheme);
-    document.getElementById('langToggle')?.addEventListener('click', () => {
-      if (window.I18N && window.I18N.toggleLang) window.I18N.toggleLang();
-      window.I18N.applyI18n();
-      loadAnalysis();
+    window.onSharedDataReady = () => loadAnalysis();
+    window.SharedNav?.init({
+      onLangChange: () => loadAnalysis(),
     });
-    window.I18N.applyI18n();
     document.getElementById('btnAnalyze')?.addEventListener('click', loadAnalysis);
     loadAnalysis();
   }

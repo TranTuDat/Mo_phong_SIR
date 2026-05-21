@@ -3,6 +3,7 @@ Module tạo và phân tích mạng xã hội
 Chức năng: Tạo mạng xã hội ngẫu nhiên, tính toán chỉ số mạng, trực quan hóa đồ thị
 """
 
+import math
 import pandas as pd
 import networkx as nx
 import matplotlib
@@ -15,15 +16,15 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from graph_layout import spring_or_circular
+from .graph_layout import spring_or_circular
 
-_REPO_ROOT = Path(__file__).resolve().parent
-# Render / máy chủ: ghi output cùng thư mục repo để get_latest_output_dir() tìm được.
-# Có thể gán MO_PHONG_OUTPUT_ROOT=/path/đến/thư_mục cha → dữ liệu nằm trong .../mo_phong_outputs/
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+# Render / máy chủ: ghi output vào thư mục outputs/ dưới root repo (get_latest_output_dir).
+# Có thể gán MO_PHONG_OUTPUT_ROOT=/path/đến/thư_mục_cha → dữ liệu nằm trong .../mo_phong_outputs/
 if os.getenv('MO_PHONG_OUTPUT_ROOT'):
     OUTPUT_ROOT = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', '')).resolve() / 'mo_phong_outputs'
 else:
-    OUTPUT_ROOT = _REPO_ROOT.resolve()
+    OUTPUT_ROOT = _REPO_ROOT.resolve() / 'outputs'
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Cấu hình logging
@@ -122,33 +123,76 @@ class SocialNetworkGenerator:
             logger.error(f"Lỗi khi tạo người dùng: {e}")
             raise
     
-    def generate_relationships(self, relationship_probability: float = 0.15) -> list:
+    def generate_community_relationships(
+        self,
+        relationship_probability: float = 0.025,
+        *,
+        num_communities: int | None = None,
+    ) -> list:
         """
-        Tạo quan hệ giữa người dùng
-        
-        Args:
-            relationship_probability (float): Xác suất tạo quan hệ (0-1)
-            
-        Returns:
-            list: Danh sách quan hệ
-            
-        Raises:
-            ValueError: Nếu xác suất không trong khoảng [0, 1]
+        Tạo quan hệ theo cấu trúc cộng đồng: dày trong cụm, thưa giữa các cụm.
         """
         if not (0 <= relationship_probability <= 1):
             raise ValueError("relationship_probability phải trong khoảng [0, 1]")
-        
+        if not self.users:
+            raise ValueError("Chưa có người dùng")
+
+        n = self.num_users
+        k = num_communities or max(8, min(15, int(round(math.sqrt(n) * 0.55))))
+        p_in = min(0.22, max(0.05, relationship_probability * 3.8))
+        p_out = min(0.006, max(0.0004, relationship_probability * 0.12))
+
+        user_ids = [u['user_id'] for u in self.users]
+        random.shuffle(user_ids)
+        communities: list[list[int]] = [[] for _ in range(k)]
+        for i, uid in enumerate(user_ids):
+            communities[i % k].append(uid)
+            for u in self.users:
+                if u['user_id'] == uid:
+                    u['community_id'] = i % k
+
+        self.relationships = []
+        seen: set[tuple[int, int]] = set()
+
+        def add_edge(a: int, b: int) -> None:
+            if a == b:
+                return
+            key = (min(a, b), max(a, b))
+            if key in seen:
+                return
+            seen.add(key)
+            self.relationships.append({'user1_id': a, 'user2_id': b})
+
+        for comm in communities:
+            for i, u1 in enumerate(comm):
+                for u2 in comm[i + 1 :]:
+                    if random.random() < p_in:
+                        add_edge(u1, u2)
+
+        for i, c1 in enumerate(communities):
+            for c2 in communities[i + 1 :]:
+                for u1 in c1:
+                    for u2 in c2:
+                        if random.random() < p_out:
+                            add_edge(u1, u2)
+
+        logger.info(
+            "✓ Quan hệ theo %d cụm (p_in=%.4f, p_out=%.5f): %d cạnh",
+            k,
+            p_in,
+            p_out,
+            len(self.relationships),
+        )
+        return self.relationships
+
+    def generate_relationships(self, relationship_probability: float = 0.15) -> list:
+        """Tạo quan hệ — mặc định dùng mô hình community (SNA thực tế)."""
         try:
-            logger.info(f"Bắt đầu tạo quan hệ (xác suất: {relationship_probability*100}%)...")
-            
-            user_ids = [u['user_id'] for u in self.users]
-            for i, user1_id in enumerate(user_ids):
-                for user2_id in user_ids[i+1:]:
-                    if random.random() < relationship_probability:
-                        self.relationships.append({'user1_id': user1_id, 'user2_id': user2_id})
-            
-            logger.info(f"✓ Đã tạo {len(self.relationships)} quan hệ thành công")
-            return self.relationships
+            logger.info(
+                "Bắt đầu tạo quan hệ community (xác suất cơ sở: %s%%)...",
+                relationship_probability * 100,
+            )
+            return self.generate_community_relationships(relationship_probability)
         except Exception as e:
             logger.error(f"Lỗi khi tạo quan hệ: {e}")
             raise

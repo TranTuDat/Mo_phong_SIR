@@ -8,6 +8,7 @@ venv/
 env/
 
 # Output mạng / mô phỏng (không commit lên git)
+outputs/
 output_*/
 output_uploaded_*/
 

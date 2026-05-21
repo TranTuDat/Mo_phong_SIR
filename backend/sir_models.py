@@ -9,7 +9,7 @@ import random
 import logging
 from pathlib import Path
 
-from sir_sim_paths import dynamic_dataset_subdir_fs, pure_dataset_subdir_fs
+from .sir_sim_paths import dynamic_dataset_subdir_fs, pure_dataset_subdir_fs
 
 # Cấu hình logging
 logging.basicConfig(
@@ -17,6 +17,20 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _discover_dataset_dirs() -> list[Path]:
+    """Các thư mục output_* / output_uploaded_* trong outputs/ và (legacy) root repo."""
+    out = _REPO_ROOT / 'outputs'
+    found: list[Path] = []
+    if out.is_dir():
+        found.extend(p for p in out.glob('output_*') if p.is_dir())
+        found.extend(p for p in out.glob('output_uploaded_*') if p.is_dir())
+    found.extend(p for p in _REPO_ROOT.glob('output_*') if p.is_dir())
+    found.extend(p for p in _REPO_ROOT.glob('output_uploaded_*') if p.is_dir())
+    return found
 
 
 class PureSIRSimulation:
@@ -72,7 +86,7 @@ class PureSIRSimulation:
             return path
 
         # Find the most recent output folder
-        output_folders = list(Path('.').glob('output_*'))
+        output_folders = _discover_dataset_dirs()
         if output_folders:
             # Sort by modification time, get the most recent
             most_recent = max(output_folders, key=lambda p: p.stat().st_mtime)
@@ -426,7 +440,7 @@ class SIRDynamicImmunization:
             return path
 
         # Find the most recent output folder
-        output_folders = list(Path('.').glob('output_*'))
+        output_folders = _discover_dataset_dirs()
         if output_folders:
             # Sort by modification time, get the most recent
             most_recent = max(output_folders, key=lambda p: p.stat().st_mtime)

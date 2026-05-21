@@ -7,7 +7,12 @@
 
   const STRINGS = {
     vi: {
-      meta: { appTitle: 'InfoOps Analyzer', sirTitle: 'Mô phỏng SIR — InfoOps Analyzer', recTitle: 'Gợi ý can thiệp — InfoOps Analyzer' },
+      meta: {
+        appTitle: 'InfoOps Analyzer',
+        sirTitle: 'Mô phỏng SIR — InfoOps Analyzer',
+        recTitle: 'Gợi ý can thiệp — InfoOps Analyzer',
+        graphTitle: 'Bản đồ mạng — InfoOps Analyzer',
+      },
       shell: {
         themeLight: 'Chế độ sáng',
         themeDark: 'Chế độ tối',
@@ -16,11 +21,12 @@
       },
       nav: {
         overview: 'Tổng quan',
+        dataImport: 'Nhập dữ liệu',
         sirPage: 'Mô phỏng SIR',
-        sirPageLong: 'Trang mô phỏng SIR',
+        sirPageLong: 'Mô phỏng SIR',
         networkOverview: 'Tổng quan mạng',
         sirActive: 'Mô phỏng SIR',
-        recsPage: 'Gợi ý can thiệp',
+        recsPage: 'Đề xuất can thiệp',
       },
       brand: {
         subtitle: 'Phân tích mạng & lan truyền',
@@ -49,11 +55,20 @@
         metricHighRisk: 'Nguy cơ cao (ước lượng)',
         metricFootnote: 'Ước lượng từ kích thước mạng',
         graphTitle: 'Bản đồ mạng',
-        graphSub: 'Node theo mức độ nguy cơ và vai trò cấu trúc.',
+        graphMapTitle: 'Bản đồ mạng tương tác',
+        graphSub: 'Màu cụm = community; độ đậm = nguy cơ / hub. Chỉ nút nổi bật.',
+        graphSubFull:
+          'Toàn mạng: {shown}/{total} nút · {edges}/{edgesTotal} cạnh hiển thị (bộ lọc/nhãn áp dụng trên đồ thị).',
+        graphSubSummary:
+          'Đồ thị tóm lược: {shown}/{total} nút, {edges} cạnh — nút cùng cụm được đặt gần nhau.',
         labels: 'Nhãn',
-        yes: 'Có',
-        no: 'Không',
+        labelsSmart: 'Quan trọng + rê chuột',
+        labelsAll: 'Tất cả',
+        labelsHover: 'Chỉ khi rê chuột',
+        labelsOff: 'Ẩn nhãn',
         refresh: 'Làm mới',
+        resetView: 'Vừa khung',
+        filterHubs: 'Hub',
         riskHigh: 'Nguy cơ cao',
         riskMed: 'Trung bình',
         riskLow: 'Thấp',
@@ -68,6 +83,11 @@
         lblFinal: 'Ngày kết thúc',
         lblOutput: 'Thư mục kết quả',
         topNodes: 'Top 10 nút',
+        riskWeightsTitle: 'Trọng số',
+        weightBetw: 'Betweenness',
+        weightDeg: 'Degree',
+        weightEig: 'Eigenvector',
+        riskWeightsReset: 'Mặc định',
         topAuto: 'Tự động',
         thRank: '#',
         thAccount: 'Tài khoản',
@@ -144,7 +164,14 @@
         gamma: 'Tỷ lệ hồi phục (γ)',
         maxDays: 'Số ngày tối đa',
         seed: 'Seed',
-        topK: 'Top-k miễn nhiễm (betweenness)',
+        topK: 'Top-k miễn nhiễm',
+        strategy: 'Chiến lược can thiệp',
+        strategyBet: 'Theo betweenness',
+        strategyDeg: 'Theo degree',
+        strategyEig: 'Theo eigenvector',
+        interventionDay: 'Ngày can thiệp',
+        interventionDayHint:
+          '(1 = ngày đầu tiên của mô phỏng; có thể chạy nhiều lần với ngày khác nhau để so sánh)',
         runPure: 'Chạy SIR thuần',
         runDyn: 'Chạy SIR + can thiệp',
         hintCompare: 'Gợi ý: chạy SIR thuần trước, rồi SIR + can thiệp để mở tab so sánh.',
@@ -154,6 +181,12 @@
         stripPeakI: 'Max đồng thời nhiễm (I)',
         stripFinal: 'Ngày kết thúc (ghi nhận)',
         stripS: 'Nhạy cảm (S) cuối',
+        viewRun: 'Xem kết quả',
+        runCount: '{n} mẫu can thiệp',
+        pickRunHint:
+          'Chọn mẫu để xem đồ thị S–I–R và chỉ số; tab So sánh hiển thị tất cả mẫu cùng lúc.',
+        runPureOpt: 'SIR thuần',
+        runDynFmt: 'Can thiệp: {strategy}, ngày {day}, top-{k}',
         tabChart: 'Đồ thị S–I–R',
         tabStats: 'Chỉ số',
         tabCompare: 'So sánh',
@@ -218,10 +251,21 @@
         errRun: 'Lỗi: ',
         noDesc: 'Chưa có mô tả.',
         processing: 'Đang xử lý…',
+        restoredSir: 'Đã tải lại {n} mô phỏng đã lưu trong thư mục output.',
+        graphCaption: '{shown}/{total} nút · {edges} cạnh hiển thị',
+      },
+      toast: {
+        generated: 'Tạo dữ liệu thành công.',
+        uploaded: 'Tải lên thành công.',
       },
     },
     en: {
-      meta: { appTitle: 'InfoOps Analyzer', sirTitle: 'SIR simulation — InfoOps Analyzer', recTitle: 'Intervention suggestions — InfoOps Analyzer' },
+      meta: {
+        appTitle: 'InfoOps Analyzer',
+        sirTitle: 'SIR simulation — InfoOps Analyzer',
+        recTitle: 'Intervention suggestions — InfoOps Analyzer',
+        graphTitle: 'Network map — InfoOps Analyzer',
+      },
       shell: {
         themeLight: 'Light mode',
         themeDark: 'Dark mode',
@@ -230,8 +274,9 @@
       },
       nav: {
         overview: 'Overview',
+        dataImport: 'Import data',
         sirPage: 'SIR simulation',
-        sirPageLong: 'SIR simulation page',
+        sirPageLong: 'SIR simulation',
         networkOverview: 'Network overview',
         sirActive: 'SIR simulation',
         recsPage: 'Intervention suggestions',
@@ -263,11 +308,20 @@
         metricHighRisk: 'High risk (est.)',
         metricFootnote: 'Estimated from network size',
         graphTitle: 'Interaction map',
-        graphSub: 'Nodes by risk level and structural role.',
+        graphMapTitle: 'Interactive network map',
+        graphSub: 'Cluster color = community; shade = risk / hub. Key nodes only.',
+        graphSubFull:
+          'Full network: {shown}/{total} nodes · {edges}/{edgesTotal} edges shown (filters/labels apply on chart).',
+        graphSubSummary:
+          'Summary view: {shown}/{total} nodes, {edges} edges — same-cluster nodes are grouped.',
         labels: 'Labels',
-        yes: 'On',
-        no: 'Off',
+        labelsSmart: 'Key nodes + hover',
+        labelsAll: 'All',
+        labelsHover: 'Hover only',
+        labelsOff: 'Hide labels',
         refresh: 'Refresh',
+        resetView: 'Fit view',
+        filterHubs: 'Hubs',
         riskHigh: 'High risk',
         riskMed: 'Medium',
         riskLow: 'Low',
@@ -282,6 +336,11 @@
         lblFinal: 'End day',
         lblOutput: 'Output folder',
         topNodes: 'Top 10 nodes',
+        riskWeightsTitle: 'Weights',
+        weightBetw: 'Betweenness',
+        weightDeg: 'Degree',
+        weightEig: 'Eigenvector',
+        riskWeightsReset: 'Reset',
         topAuto: 'Auto',
         thRank: '#',
         thAccount: 'Account',
@@ -358,7 +417,14 @@
         gamma: 'Recovery rate (γ)',
         maxDays: 'Max days',
         seed: 'Seed',
-        topK: 'Immunized top-k (by betweenness)',
+        topK: 'Immunized top-k',
+        strategy: 'Intervention strategy',
+        strategyBet: 'By betweenness',
+        strategyDeg: 'By degree',
+        strategyEig: 'By eigenvector',
+        interventionDay: 'Intervention day',
+        interventionDayHint:
+          '(1 = first simulation day; run again with another day to compare)',
         runPure: 'Run pure SIR',
         runDyn: 'Run SIR + intervention',
         hintCompare: 'Tip: run pure SIR first, then SIR + intervention to unlock comparison.',
@@ -368,6 +434,12 @@
         stripPeakI: 'Peak concurrent I',
         stripFinal: 'Recorded end day',
         stripS: 'Susceptible (S) at end',
+        viewRun: 'View results',
+        runCount: '{n} intervention runs',
+        pickRunHint:
+          'Pick a run to view its S–I–R chart and metrics; the Compare tab shows all runs together.',
+        runPureOpt: 'Pure SIR',
+        runDynFmt: 'Intervention: {strategy}, day {day}, top-{k}',
         tabChart: 'S–I–R chart',
         tabStats: 'Metrics',
         tabCompare: 'Compare',
@@ -432,6 +504,12 @@
         errRun: 'Error: ',
         noDesc: 'No description.',
         processing: 'Processing…',
+        restoredSir: 'Reloaded {n} saved simulation(s) from the output folder.',
+        graphCaption: '{shown}/{total} nodes · {edges} edges shown',
+      },
+      toast: {
+        generated: 'Data generated successfully.',
+        uploaded: 'Upload successful.',
       },
     },
   };
@@ -483,7 +561,14 @@
     if (meta) {
       const isSir = document.body.classList.contains('sir-page-body');
       const isRec = document.body.classList.contains('rec-page-body');
-      document.title = isRec ? meta.recTitle : isSir ? meta.sirTitle : meta.appTitle;
+      const isGraph = document.body.classList.contains('graph-page-body');
+      document.title = isGraph
+        ? meta.graphTitle || meta.appTitle
+        : isRec
+          ? meta.recTitle
+          : isSir
+            ? meta.sirTitle
+            : meta.appTitle;
     }
     const langToggle = document.getElementById('langToggle');
     if (langToggle) {
