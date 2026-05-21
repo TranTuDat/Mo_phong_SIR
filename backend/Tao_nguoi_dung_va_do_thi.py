@@ -371,8 +371,7 @@ class SocialNetworkGenerator:
             
             plt.close()
         except Exception as e:
-            logger.error(f"Lỗi khi trực quan hóa đồ thị: {e}")
-            raise
+            logger.warning('Bỏ qua lưu PNG (matplotlib không bắt buộc trên server): %s', e)
     
     def print_statistics(self) -> None:
         """In thống kê mạng xã hội"""

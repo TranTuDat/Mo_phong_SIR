@@ -525,7 +525,7 @@ async function fetchJson(path) {
     /* ignore */
   }
   if (!response.ok) {
-    const msg = data.error || data.message || `HTTP ${response.status}`;
+    const msg = data.error || data.hint || data.message || `HTTP ${response.status}`;
     throw new Error(msg);
   }
   return data;

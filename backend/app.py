@@ -35,6 +35,35 @@ from .graph_layout import (
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def _json_safe(value):
+    """Chuyển numpy/pandas sang kiểu JSON thuần (tránh 500 khi jsonify trên Render)."""
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        f = float(value)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return f
+    if isinstance(value, (np.bool_, bool)):
+        return bool(value)
+    if isinstance(value, (pd.Timestamp, datetime.datetime, datetime.date)):
+        return str(value)
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def json_safe_response(data, status=200):
+    return jsonify(_json_safe(data)), status
+
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 HTML_DIR = BASE_DIR / 'html'
 OUTPUTS_DIR = BASE_DIR / 'outputs'
@@ -2048,11 +2077,6 @@ def recommendations_page():
     return send_from_directory(str(HTML_DIR), 'recommendations.html')
 
 
-@app.route('/<path:path>')
-def static_files(path):
-    return send_from_directory(str(BASE_DIR), path)
-
-
 @app.route('/api/summary')
 def api_summary():
     try:
@@ -2064,7 +2088,7 @@ def api_summary():
             f'Lỗi khi dựng đồ thị: {str(e)}. '
             'Thử bấm «Tạo dữ liệu» lại, giảm số user, hoặc kiểm tra Render đã cài scipy (requirements.txt).'
         )
-    return jsonify({
+    return json_safe_response({
         'ready': payload.get('ready', True),
         'nodes': payload['nodes'],
         'edges': payload['edges'],
@@ -2086,7 +2110,7 @@ def api_graph():
     viz = request.args.get('viz', 'summary')
     try:
         payload = build_graph_payload(viz=viz)
-        return jsonify(payload)
+        return json_safe_response(payload)
     except Exception as e:
         logger.exception('api_graph: build_graph_payload failed')
         p = empty_graph_payload()
@@ -2095,7 +2119,7 @@ def api_graph():
             'Thử «Tạo dữ liệu» lại hoặc giảm số user; trên Render cần có scipy trong requirements.txt.'
         )
         p['error'] = str(e)
-        return jsonify(p)
+        return json_safe_response(p)
 
 
 @app.route('/api/top-nodes')
@@ -2140,17 +2164,27 @@ def api_run_generator():
         seed = int(payload.get('seed', 42))
 
         generator = SocialNetworkGenerator(num_users=num_users, seed=seed)
-        metrics = generator.run(num_users=num_users, relationship_prob=relationship_prob)
+        generator.run(num_users=num_users, relationship_prob=relationship_prob)
 
-        return jsonify({
-            'output_folder': generator.output_dir,
+        global _cached_graph, _cached_payload_by_viz, _cached_output
+        _cached_graph = None
+        _cached_payload_by_viz = {}
+        _cached_output = None
+
+        folder = Path(generator.output_dir)
+        _, users, relationships, metrics = load_output_data(str(folder))
+        graph = create_graph(users, relationships)
+        top_nodes = _top_nodes_payload(users, metrics, graph, 10)
+
+        return json_safe_response({
+            'output_folder': str(generator.output_dir),
             'nodes': num_users,
             'edges': len(generator.relationships),
-            'top_nodes': metrics.head(10).to_dict(orient='records'),
+            'top_nodes': top_nodes,
         })
     except Exception as e:
-        logger.error(f'Error in api_run_generator: {e}')
-        return jsonify({'error': f'Lỗi tạo dữ liệu: {str(e)}'}), 500
+        logger.exception('api_run_generator failed')
+        return json_safe_response({'error': f'Lỗi tạo dữ liệu: {str(e)}'}, 500)
 
 
 @app.route('/api/run-simulate', methods=['POST'])
@@ -2560,7 +2594,24 @@ def api_upload_data():
         return jsonify({'error': f'Lỗi xử lý file: {str(e)}'}), 500
 
 
+@app.route('/<path:path>')
+def static_files(path):
+    return send_from_directory(str(BASE_DIR), path)
+
+
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({'error': str(error)}), 404
+    return json_safe_response({'error': str(error)}, 404)
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.exception('Unhandled 500: %s', error)
+    return json_safe_response(
+        {
+            'error': 'Lỗi máy chủ nội bộ',
+            'detail': str(error) if error else None,
+        },
+        500,
+    )
 
