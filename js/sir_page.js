@@ -37,13 +37,14 @@
       if (e) e.textContent = data.edges;
       const hint = document.getElementById('dataHint');
       if (hint) {
-        hint.style.display = data.ready === false ? 'block' : 'none';
+        if (data.ready === false) hint.removeAttribute('hidden');
+        else hint.setAttribute('hidden', '');
       }
       return data;
     } catch (err) {
       console.warn(err);
       const hint = document.getElementById('dataHint');
-      if (hint) hint.style.display = 'block';
+      if (hint) hint.removeAttribute('hidden');
       return null;
     }
   }
@@ -409,9 +410,40 @@
     setActiveSirRun(rk);
   }
 
+  function markSirChartHasData() {
+    document.getElementById('sirChartWrap')?.classList.add('sir-chart-has-data');
+    document.getElementById('sirCmpChartWrap')?.classList.add('sir-chart-has-data');
+  }
+
+  const SIR_CHART_FONT = 12;
+
+  function sirChartTextOpts() {
+    return {
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { font: { size: SIR_CHART_FONT }, boxWidth: 14, padding: 14 },
+        },
+        title: { font: { size: SIR_CHART_FONT + 1 } },
+        tooltip: { titleFont: { size: SIR_CHART_FONT }, bodyFont: { size: SIR_CHART_FONT } },
+      },
+      scales: {
+        x: {
+          ticks: { font: { size: SIR_CHART_FONT - 1 } },
+          title: { font: { size: SIR_CHART_FONT } },
+        },
+        y: {
+          ticks: { font: { size: SIR_CHART_FONT - 1 } },
+          title: { font: { size: SIR_CHART_FONT } },
+        },
+      },
+    };
+  }
+
   function drawSirSimChart(history, titleText) {
     const canvas = document.getElementById('sirSimChart');
     if (!canvas || typeof Chart === 'undefined' || !history || !history.length) return;
+    markSirChartHasData();
     const ctx = canvas.getContext('2d');
     if (simLineChart) simLineChart.destroy();
     const labels = history.map((h) => h.day);
@@ -457,9 +489,10 @@
         maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
-          legend: { position: 'top' },
-          title: { display: true, text: titleText },
+          ...sirChartTextOpts().plugins,
+          title: { display: true, text: titleText, font: { size: SIR_CHART_FONT + 1 } },
           tooltip: {
+            ...sirChartTextOpts().plugins.tooltip,
             callbacks: {
               label(ctx) {
                 return `${ctx.dataset.label}: ${ctx.parsed.y}`;
@@ -468,8 +501,15 @@
           },
         },
         scales: {
-          x: { title: { display: true, text: 'Ngày mô phỏng' } },
-          y: { beginAtZero: true, title: { display: true, text: 'Số cá thể' } },
+          x: {
+            ...sirChartTextOpts().scales.x,
+            title: { display: true, text: 'Ngày mô phỏng', font: { size: SIR_CHART_FONT } },
+          },
+          y: {
+            ...sirChartTextOpts().scales.y,
+            beginAtZero: true,
+            title: { display: true, text: 'Số cá thể', font: { size: SIR_CHART_FONT } },
+          },
         },
       },
     });
@@ -477,6 +517,7 @@
   }
 
   function drawSirComparisonChart() {
+    markSirChartHasData();
     const canvas = document.getElementById('comparisonSimChart');
     if (!canvas || typeof Chart === 'undefined') return;
     const ctx = canvas.getContext('2d');
@@ -556,14 +597,16 @@
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'top' },
+          ...sirChartTextOpts().plugins,
           title: {
             display: true,
-            text: t('sir.chartCmp'),
+            text: t('sir.chartCmp') || 'So sánh đỉnh I — SIR thuần vs can thiệp',
+            font: { size: SIR_CHART_FONT + 1 },
           },
         },
         scales: {
-          y: { beginAtZero: true },
+          x: sirChartTextOpts().scales.x,
+          y: { ...sirChartTextOpts().scales.y, beginAtZero: true },
         },
       },
     });
@@ -786,15 +829,9 @@
   window.onSharedDataReady = reloadAfterDataChange;
 
   async function init() {
-    window.SharedNav?.init({
-      onLangChange: () => {
-        syncSirRunPicker(activeSirRunKey);
-        refreshSirChartsForTab(getActiveSirResultTab());
-        resizeSirCharts();
-      },
-    });
+    window.MauShell?.init({ page: 'simulation', onDataReady: reloadAfterDataChange });
     setupSirRangeInputs();
-    const resultsPanel = document.querySelector('.sir-page-main .sim-results-panel');
+    const resultsPanel = document.querySelector('.sim-results-panel');
     if (resultsPanel && typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => resizeSirCharts());
       ro.observe(resultsPanel);

@@ -1,0 +1,45 @@
+/**
+ * Tăng cỡ chữ ~+2px trong shell Mau — giữ nguyên grid/spacing chính.
+ */
+.dashboard {
+  font-size: 13px;
+}
+
+.dashboard .logo-text h1 { font-size: 15px; }
+.dashboard .logo-text p { font-size: 10px; }
+.dashboard .nav-item { font-size: 13px; }
+.dashboard .data-info h3 { font-size: 12px; }
+.dashboard .data-row { font-size: 12px; }
+.dashboard .data-ready { font-size: 11px; }
+.dashboard .sidebar-footer { font-size: 10px; }
+.dashboard .header-btn { font-size: 12px; }
+.dashboard .stat-label { font-size: 11px; }
+.dashboard .stat-value { font-size: 22px; }
+.dashboard .stat-change { font-size: 11px; }
+.dashboard .card-title { font-size: 13px; }
+.dashboard .card-btn { font-size: 11px; }
+.dashboard .graph-legend { font-size: 10px; }
+.dashboard table { font-size: 11px; }
+.dashboard th,
+.dashboard td { padding: 7px 10px; }
+.dashboard .risk-score { font-size: 11px; }
+.dashboard .account-name { font-size: 13px; }
+.dashboard .account-badge { font-size: 10px; }
+.dashboard .account-stats { font-size: 11px; }
+.dashboard .account-detail { font-size: 11px; }
+.dashboard .community-label { font-size: 12px; }
+.dashboard .community-count { font-size: 11px; }
+.dashboard .community-total,
+.dashboard .view-details { font-size: 11px; }
+.dashboard .recommendation-title { font-size: 11px; }
+.dashboard .recommendation-desc { font-size: 10px; }
+.dashboard .recommendation-priority { font-size: 10px; }
+.dashboard .footer { font-size: 11px; }
+
+.modal-overlay .modal-head h3 { font-size: 14px; }
+.modal-overlay .modal-body label { font-size: 12px; }
+.modal-overlay .modal-body input,
+.modal-overlay .modal-body select { font-size: 13px; }
+.modal-overlay .modal-body small { font-size: 11px; }
+.modal-overlay .modal-foot button { font-size: 12px; }
+.toast-msg { font-size: 13px; }

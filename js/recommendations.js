@@ -6,9 +6,16 @@
     return window.I18N && window.I18N.getLang ? window.I18N.getLang() : 'vi';
   }
 
+  const VI = {
+    'rec.statusOk': 'Có dữ liệu',
+    'rec.statusMissing': 'Chưa chạy',
+    'rec.winnerNone': 'Chưa có đề xuất — chạy mô phỏng SIR + can thiệp trước.',
+    'rec.errLoad': 'Không tải được phân tích:',
+  };
+
   function t(key) {
     if (window.I18N && window.I18N.t) return window.I18N.t(key);
-    return key;
+    return VI[key] || key;
   }
 
   async function fetchJson(url) {
@@ -22,7 +29,7 @@
     const el = document.getElementById('recStatus');
     if (!el) return;
     el.textContent = msg || '';
-    el.className = 'status-message sim-status-msg ' + (type || 'info');
+    el.className = 'sim-status-msg ' + (type || 'info');
   }
 
   function renderAnalysis(data) {
@@ -72,7 +79,7 @@
 
     (win.intervened_nodes || []).forEach((n) => {
       const li = document.createElement('li');
-      li.className = 'cluster-item';
+      li.className = '';
       li.innerHTML = `<div><strong class="tabular-nums">${n.id}</strong> — ${escapeHtml(n.name)}</div>`;
       listEl.appendChild(li);
     });
@@ -109,9 +116,7 @@
 
   function init() {
     window.onSharedDataReady = () => loadAnalysis();
-    window.SharedNav?.init({
-      onLangChange: () => loadAnalysis(),
-    });
+    window.MauShell?.init({ page: 'recommendations', onDataReady: loadAnalysis });
     document.getElementById('btnAnalyze')?.addEventListener('click', loadAnalysis);
     loadAnalysis();
   }

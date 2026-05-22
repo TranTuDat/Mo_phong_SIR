@@ -1,215 +1,459 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title data-i18n="dashboard.docTitle">InfoOps Analyzer</title>
-  <link rel="stylesheet" href="/css/styles.css" />
-  <link rel="stylesheet" href="/css/graph-viz.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InfoOps Analyzer - Công cụ phân tích mạng xã hội</title>
+  <link rel="stylesheet" href="/css/dashboard-mau.css" />
+  <link rel="stylesheet" href="/css/mau-typography.css" />
 </head>
-<body class="dashboard-body dash-pro">
-  <div class="app-shell">
-    <aside class="sidebar dash-sidebar">
-      <div class="dash-sidebar-inner">
-        <div class="dash-sidebar-scroll">
-        <div class="brand dash-brand">
-          <div class="brand-mark dash-brand-icon" aria-hidden="true">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2.2 4.2 5.4v5.4c0 4.2 2.8 8.1 7.8 9.6.3.1.6.1.9 0 5-1.5 7.8-5.4 7.8-9.6V5.4L12 2.2z" fill="rgba(255,255,255,.2)" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-              <path d="M8 11h2.5v4H8zm5.5-2H16v6h-2.5V9z" fill="currentColor"/>
-            </svg>
-          </div>
-          <div>
-            <h1>InfoOps Analyzer</h1>
-          </div>
+<body data-mau-page="overview">
+<div class="dashboard">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
         </div>
-
-        <nav class="menu dash-nav" aria-label="Menu chính">
-          <span class="menu-item active">
-            <span class="dash-nav-glyph dash-nav-glyph--active" aria-hidden="true"></span>
-            <span data-i18n="nav.overview">Tổng quan</span>
-          </span>
-          <button type="button" class="menu-item menu-item-btn" id="menuOpenData">
-            <span class="dash-nav-glyph" aria-hidden="true"></span>
-            <span data-i18n="nav.dataImport">Nhập dữ liệu</span>
-          </button>
-
-          <hr class="dash-nav-divider" aria-hidden="true" />
-
-          <a href="/simulation" class="menu-item menu-item-link">
-            <span class="dash-nav-glyph" aria-hidden="true"></span>
-            <span data-i18n="nav.sirPageLong">Mô phỏng SIR</span>
-          </a>
-          <a href="/recommendations" class="menu-item menu-item-link">
-            <span class="dash-nav-glyph" aria-hidden="true"></span>
-            <span data-i18n="nav.recsPage">Đề xuất can thiệp</span>
-          </a>
-
-        </nav>
+        <div class="logo-text">
+          <h1>InfoOps Analyzer</h1>
+          <p>Công cụ phân tích mạng xã hội</p>
         </div>
+      </div>
 
-        <footer class="dash-sidebar-footer">
-          <button type="button" id="btnCleanupOutputs" class="dash-sidebar-action" data-i18n="dashboard.cleanup">Dọn output cũ</button>
-        </footer>
+      <nav class="nav-menu">
+        <div class="nav-item active" data-mau-nav="overview">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Tổng quan</span>
+        </div>
+        <div class="nav-item" id="menuOpenData" data-mau-nav="data">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Nhập dữ liệu</span>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+        <div class="nav-item" data-mau-nav="simulation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          <span>Phân tích mạng</span>
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>
+        <div class="nav-item" data-mau-nav="topnodes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span>Nút quan trọng</span>
+        </div>
+        <div class="nav-item" data-mau-nav="communities">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+          <span>Cụm cộng đồng</span>
+        </div>
+        <div class="nav-item" data-mau-nav="risk">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>Điểm nguy cơ</span>
+        </div>
+        <div class="nav-item" data-mau-nav="recommendations">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <span>Đề xuất can thiệp</span>
+        </div>
+        <div class="nav-item" data-mau-nav="report">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <span>Báo cáo</span>
+        </div>
+      </nav>
+
+      <div class="data-info">
+        <h3>Thông tin dữ liệu</h3>
+        <div class="data-row">
+          <span>Tài khoản (Node):</span>
+          <span id="sideStatNodes">1,248</span>
+        </div>
+        <div class="data-row">
+          <span>Quan hệ (Edge):</span>
+          <span id="sideStatEdges">3,682</span>
+        </div>
+        <div class="data-row">
+          <span>Loại tương tác:</span>
+          <span>3</span>
+        </div>
+        <div class="data-row">
+          <span>Ngày dữ liệu:</span>
+          <span id="sideStatDate">20/04/2026</span>
+        </div>
+        <div class="data-ready" id="dataReadyBadge">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          Dữ liệu đã sẵn sàng
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        Trường Sĩ quan Thông tin - Khoa CNTT - TC KGM
       </div>
     </aside>
 
-    <div id="dataGenModal" class="modal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 data-i18n="dashboard.modalTitle">Tạo dữ liệu mạng</h3>
-          <button type="button" class="modal-close" onclick="closeDataGenModal()" aria-label="Close">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label for="numUsers" data-i18n="dashboard.lblNumUsers">Số người dùng</label>
-            <input type="number" id="numUsers" value="500" min="10" max="2000" step="10" />
-            <small data-i18n="dashboard.hintUsers">10–2000</small>
-          </div>
-          <div class="form-group">
-            <label for="relationshipProb" data-i18n="dashboard.lblProb">Xác suất có cạnh</label>
-            <input type="number" id="relationshipProb" value="0.025" min="0.001" max="0.1" step="0.001" />
-            <small data-i18n="dashboard.hintProb">0,001–0,1 (càng cao càng dày)</small>
-          </div>
-          <div class="form-group">
-            <label for="randomSeed" data-i18n="dashboard.lblSeed">Seed</label>
-            <input type="number" id="randomSeed" value="42" min="1" max="9999" />
-            <small data-i18n="dashboard.hintSeed">Tái lập kết quả</small>
-          </div>
-          <div class="form-group">
-            <label for="dataSource" data-i18n="dashboard.lblSource">Nguồn</label>
-            <select id="dataSource">
-              <option value="generate" data-i18n="dashboard.srcGen">Sinh ngẫu nhiên</option>
-              <option value="upload" data-i18n="dashboard.srcUp">Tải CSV</option>
-            </select>
-          </div>
-          <div class="form-group" id="fileUploadGroup" style="display: none;">
-            <label for="dataFile" data-i18n="dashboard.lblFile">File CSV</label>
-            <input type="file" id="dataFile" accept=".csv" />
-            <small data-i18n="dashboard.hintCsv">Cột: id, name, …</small>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" onclick="closeDataGenModal()" data-i18n="dashboard.cancel">Hủy</button>
-          <button type="button" id="btnConfirmGenerate" class="primary" data-i18n="dashboard.confirmGen">Tạo dữ liệu</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="main-panel dash-main">
-      <header class="topbar dash-topbar">
-        <div class="dash-topbar-lead">
-          <h1 class="topbar-title" data-i18n="dashboard.title">Tổng quan</h1>
-        </div>
-        <div class="dash-topbar-right">
-          <div class="shell-tools dash-shell-tools" role="toolbar" aria-label="Giao diện & ngôn ngữ">
-            <button type="button" id="langToggle" class="shell-tool-btn shell-tool-btn--compact" title="English">EN</button>
-            <button type="button" id="themeToggle" class="shell-tool-btn shell-tool-btn--compact" title="Chế độ tối">🌙</button>
-          </div>
-        </div>
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="header">
+        <button type="button" class="header-btn" id="btnGuide">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Hướng dẫn
+        </button>
+        <button type="button" class="header-btn" id="btnReport">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Báo cáo
+        </button>
+        <button type="button" class="header-btn" id="btnExport">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Xuất dữ liệu
+        </button>
+        <button type="button" class="header-btn" id="btnSettings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
       </header>
 
-      <div class="content-wrap">
-        <main class="content-area dash-content">
-          <section class="metrics-grid dash-metrics dash-metrics--stats" aria-label="Chỉ số mạng">
-            <div class="dash-stats-bar card">
-              <div class="dash-kpi-row" id="dashKpiRow" aria-label="Chỉ số mạng">
-                <article class="dash-kpi dash-kpi--users">
-                  <span class="dash-kpi-label" data-i18n="dashboard.metricUsers">Tổng tài khoản</span>
-                  <strong class="dash-kpi-value tabular-nums" id="stat-users">—</strong>
-                </article>
-                <article class="dash-kpi dash-kpi--edges">
-                  <span class="dash-kpi-label" data-i18n="dashboard.metricEdges">Tổng quan hệ</span>
-                  <strong class="dash-kpi-value tabular-nums" id="stat-edges">—</strong>
-                </article>
-                <article class="dash-kpi dash-kpi--risk" id="statHighRiskCard">
-                  <span class="dash-kpi-label" data-i18n="dashboard.metricHighRisk">Nguy cơ cao</span>
-                  <strong class="dash-kpi-value tabular-nums" id="stat-high-risk">—</strong>
-                </article>
+      <div class="content">
+        <!-- Stats Row -->
+        <div class="stats-row">
+          <div class="stat-card blue">
+            <div class="stat-icon blue">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Tổng tài khoản</div>
+              <div class="stat-value" id="stat-users">1,248</div>
+              <div class="stat-change" id="stat-users-trend">+12.5% so với lần trước</div>
+            </div>
+          </div>
+          <div class="stat-card cyan">
+            <div class="stat-icon cyan">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Tổng quan hệ</div>
+              <div class="stat-value" id="stat-edges">3,682</div>
+              <div class="stat-change" id="stat-edges-trend">+15.3% so với lần trước</div>
+            </div>
+          </div>
+          <div class="stat-card yellow">
+            <div class="stat-icon yellow">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z"/></svg>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Tương tác (share/comment)</div>
+              <div class="stat-value" id="stat-interactions">5,874</div>
+              <div class="stat-change" id="stat-interactions-trend">+18.7% so với lần trước</div>
+            </div>
+          </div>
+          <div class="stat-card red">
+            <div class="stat-icon red">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Tài khoản nguy cơ cao</div>
+              <div class="stat-value" id="stat-high-risk">87</div>
+              <div class="stat-change negative" id="stat-high-risk-trend">+9 so với lần trước</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="main-grid">
+          <!-- Network Graph -->
+          <div class="card" id="dash-graph">
+            <div class="card-header">
+              <span class="card-title">Bản đồ mạng tương tác</span>
+              <div class="card-actions">
+                <button class="card-btn" id="refreshGraph">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  Làm mới
+                </button>
+                <select class="card-btn" id="labelToggle" style="border: 1px solid #e5e7eb;">
+                  <option>Hiển thị nhãn</option>
+                </select>
               </div>
             </div>
-          </section>
-          <div class="dash-grid-primary">
-            <div class="dash-col-graph">
-              <section class="graph-panel card dash-graph-card sna-graph-widget" id="dash-graph">
-                <div class="panel-header">
-                  <h3 data-i18n="dashboard.graphMapTitle">Bản đồ mạng tương tác</h3>
-                  <div class="graph-controls">
-                    <button type="button" id="refreshGraph" data-i18n="dashboard.refresh">Làm mới</button>
-                    <select id="graphFilter" aria-label="Lọc">
-                      <option value="all">Tất cả</option>
-                      <option value="high">Nguy cơ cao</option>
-                      <option value="medium">Trung bình</option>
-                      <option value="low">Thấp</option>
-                      <option value="hubs">Hub</option>
-                    </select>
-                    <select id="labelToggle" aria-label="Nhãn">
-                      <option value="smart" selected data-i18n="dashboard.labelsSmart">Quan trọng + hover</option>
-                      <option value="hover" data-i18n="dashboard.labelsHover">Chỉ hover</option>
-                      <option value="off">Ẩn nhãn</option>
-                    </select>
-                    <div class="dash-zoom-inline">
-                      <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
-                      <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
-                    </div>
-                  </div>
+            <div class="card-body">
+              <div class="graph-container">
+                <canvas id="networkCanvas"></canvas>
+                <div class="graph-legend">
+                  <div class="legend-item"><span class="legend-dot red"></span> Nguy cơ cao</div>
+                  <div class="legend-item"><span class="legend-dot orange"></span> Nguy cơ trung bình</div>
+                  <div class="legend-item"><span class="legend-dot blue"></span> Nguy cơ thấp</div>
+                  <div class="legend-item"><span class="legend-dot gray"></span> Chưa xác định</div>
                 </div>
-                <div class="sna-graph-legend" id="clusterLegendRow">
-                  <span><span class="sna-risk-dot high"></span><span data-i18n="dashboard.riskHigh">Cao</span></span>
-                  <span><span class="sna-risk-dot medium"></span><span data-i18n="dashboard.riskMed">Trung bình</span></span>
-                  <span><span class="sna-risk-dot low"></span><span data-i18n="dashboard.riskLow">Thấp</span></span>
-                  <span><span class="sna-risk-dot unknown"></span><span data-i18n="dashboard.riskUnknown">Chưa xác định</span></span>
-                  <span class="sna-legend-divider" aria-hidden="true"></span>
-                  <div id="clusterLegendItems" class="cluster-legend-items sna-cluster-legend"></div>
+                <div class="graph-controls">
+                  <button class="zoom-btn" id="zoomIn">+</button>
+                  <button class="zoom-btn" id="zoomOut">−</button>
                 </div>
-                <div class="sna-graph-canvas-wrap graph-container--sna" id="networkGraphContainer">
-                  <div id="networkGraphMount" class="sna-graph-mount" role="img" aria-label="Social network graph"></div>
-                </div>
-              </section>
+              </div>
             </div>
-
-            <div class="dash-col-table">
-              <section class="table-panel card dash-table-card" id="dash-top-nodes">
-                <div class="panel-header">
-                  <h3 data-i18n="dashboard.topNodes">Top 10 nút</h3>
-                </div>
-                <div class="table-wrapper dash-table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th data-i18n="dashboard.thRank">#</th>
-                        <th data-i18n="dashboard.thAccount">Tài khoản</th>
-                        <th data-i18n="dashboard.thBetw">Betweenness</th>
-                        <th data-i18n="dashboard.thDegree">Degree</th>
-                        <th data-i18n="dashboard.thEigen">Eigenvector</th>
-                      </tr>
-                    </thead>
-                    <tbody id="topNodesTable"></tbody>
-                  </table>
-                </div>
-              </section>
-            </div>
-
           </div>
 
-          <section id="sirResultPanel" class="sir-result-panel card dash-sir-card dash-sir-offscreen" aria-hidden="true">
-            <div class="panel-header space-between">
-              <h3 data-i18n="dashboard.sirPanel">Kết quả SIR (nhanh)</h3>
-              <span id="sirStatusText" class="badge small" data-i18n="dashboard.sirNone">Chưa chạy</span>
+          <!-- Top Nodes Table -->
+          <div class="card" id="dash-top-table">
+            <div class="card-header">
+              <span class="card-title">Top 10 nút quan trọng (theo điểm nguy cơ)</span>
             </div>
-          </section>
-        </main>
+            <div class="card-body" style="padding: 0;">
+              <div class="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Tài khoản</th>
+                      <th>Vai trò</th>
+                      <th>Degree</th>
+                      <th>Betweenness</th>
+                      <th>Eigenvector</th>
+                      <th>Điểm nguy cơ</th>
+                    </tr>
+                  </thead>
+                  <tbody id="topNodesTable">
+                    <tr>
+                      <td>1</td>
+                      <td>User_15</td>
+                      <td>Nút trung gian</td>
+                      <td>0.158</td>
+                      <td>0.286</td>
+                      <td>0.312</td>
+                      <td><span class="risk-score high">0.912</span></td>
+                    </tr>
+                    <tr>
+                      <td>2</td>
+                      <td>User_03</td>
+                      <td>Lan truyền mạnh</td>
+                      <td>0.187</td>
+                      <td>0.164</td>
+                      <td>0.287</td>
+                      <td><span class="risk-score high">0.845</span></td>
+                    </tr>
+                    <tr>
+                      <td>3</td>
+                      <td>User_22</td>
+                      <td>Trong cụm nguy cơ</td>
+                      <td>0.142</td>
+                      <td>0.198</td>
+                      <td>0.245</td>
+                      <td><span class="risk-score high">0.768</span></td>
+                    </tr>
+                    <tr>
+                      <td>4</td>
+                      <td>User_07</td>
+                      <td>Cầu nối cộng đồng</td>
+                      <td>0.129</td>
+                      <td>0.221</td>
+                      <td>0.218</td>
+                      <td><span class="risk-score medium">0.742</span></td>
+                    </tr>
+                    <tr>
+                      <td>5</td>
+                      <td>User_11</td>
+                      <td>Ảnh hưởng cao</td>
+                      <td>0.167</td>
+                      <td>0.132</td>
+                      <td>0.233</td>
+                      <td><span class="risk-score medium">0.712</span></td>
+                    </tr>
+                    <tr>
+                      <td>6</td>
+                      <td>User_45</td>
+                      <td>Lan truyền mạnh</td>
+                      <td>0.153</td>
+                      <td>0.120</td>
+                      <td>0.207</td>
+                      <td><span class="risk-score medium">0.658</span></td>
+                    </tr>
+                    <tr>
+                      <td>7</td>
+                      <td>User_29</td>
+                      <td>Trong cụm nguy cơ</td>
+                      <td>0.118</td>
+                      <td>0.170</td>
+                      <td>0.190</td>
+                      <td><span class="risk-score low">0.612</span></td>
+                    </tr>
+                    <tr>
+                      <td>8</td>
+                      <td>User_31</td>
+                      <td>Nút trung gian</td>
+                      <td>0.106</td>
+                      <td>0.158</td>
+                      <td>0.181</td>
+                      <td><span class="risk-score low">0.578</span></td>
+                    </tr>
+                    <tr>
+                      <td>9</td>
+                      <td>User_02</td>
+                      <td>Lan truyền mạnh</td>
+                      <td>0.134</td>
+                      <td>0.101</td>
+                      <td>0.173</td>
+                      <td><span class="risk-score low">0.551</span></td>
+                    </tr>
+                    <tr>
+                      <td>10</td>
+                      <td>User_18</td>
+                      <td>Trong cụm nguy cơ</td>
+                      <td>0.097</td>
+                      <td>0.144</td>
+                      <td>0.165</td>
+                      <td><span class="risk-score low">0.523</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom Grid -->
+        <div class="bottom-grid">
+          <!-- Selected Account -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Thông tin tài khoản đang chọn</span>
+            </div>
+            <div class="card-body">
+              <div class="account-info">
+                <div class="account-avatar">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                </div>
+                <div>
+                  <div class="account-name">
+                    <span id="selectedName">User_15</span>
+                    <span class="account-badge" id="selectedAccountBadge">Nguy cơ cao</span>
+                  </div>
+                </div>
+              </div>
+              <div class="account-stats">
+                <span>Người theo dõi: <strong id="selectedFollowers">12,480</strong></span>
+                <span>Bài viết: <strong id="selectedPosts">245</strong></span>
+                <span>Share: <strong id="selectedShares">1,023</strong></span>
+                <span>Comment: <strong id="selectedComments">652</strong></span>
+              </div>
+              <div class="account-detail">
+                <strong>Vai:</strong> <span id="selectedRoleLine">Nút trung gian trọng yếu, lan truyền mạnh</span>
+              </div>
+              <div class="account-detail">
+                <strong>Mô tả:</strong> <span id="selectedDescLine">Kết nối nhiều nhóm cộng đồng, có tần suất chia sẻ cao.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Community Detected -->
+          <div class="card" id="dash-communities">
+            <div class="card-header">
+              <span class="card-title">Cụm cộng đồng phát hiện được</span>
+            </div>
+            <div class="card-body">
+              <div class="community-list" id="clustersList">
+                <div class="community-item">
+                  <span class="community-dot red"></span>
+                  <span class="community-label">Cụm 1 (Đỏ)</span>
+                  <span class="community-count">312 tài khoản</span>
+                </div>
+                <div class="community-item">
+                  <span class="community-dot cyan"></span>
+                  <span class="community-label">Cụm 2 (Xanh dương)</span>
+                  <span class="community-count">286 tài khoản</span>
+                </div>
+                <div class="community-item">
+                  <span class="community-dot orange"></span>
+                  <span class="community-label">Cụm 3 (Cam)</span>
+                  <span class="community-count">254 tài khoản</span>
+                </div>
+                <div class="community-item">
+                  <span class="community-dot green"></span>
+                  <span class="community-label">Cụm 4 (Xanh lá)</span>
+                  <span class="community-count">198 tài khoản</span>
+                </div>
+                <div class="community-item">
+                  <span class="community-dot purple"></span>
+                  <span class="community-label">Cụm 5 (Tím)</span>
+                  <span class="community-count">153 tài khoản</span>
+                </div>
+              </div>
+              <div class="community-footer">
+                <span class="community-total">Số cụm: <span id="clusterCountNum">5</span></span>
+                <a href="#" class="view-details">Xem chi tiết</a>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recommendations -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Đề xuất can thiệp</span>
+            </div>
+            <div class="card-body">
+              <div class="recommendation-list" id="recommendationList">
+                <div class="recommendation-item">
+                  <div class="recommendation-icon green">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </div>
+                  <div class="recommendation-content">
+                    <div class="recommendation-title">Ưu tiên giám sát User_15</div>
+                    <div class="recommendation-desc">Nút trung gian kết nối nhiều cụm, có ảnh hưởng lớn.</div>
+                  </div>
+                  <span class="recommendation-priority p1">Ưu tiên 1</span>
+                </div>
+                <div class="recommendation-item">
+                  <div class="recommendation-icon red">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                  </div>
+                  <div class="recommendation-content">
+                    <div class="recommendation-title">Tác động vào cụm Cụm 1 (Đỏ)</div>
+                    <div class="recommendation-desc">Cụm có mức độ tương tác cao, nguy cơ lan truyền lớn.</div>
+                  </div>
+                  <span class="recommendation-priority p2">Ưu tiên 2</span>
+                </div>
+                <div class="recommendation-item">
+                  <div class="recommendation-icon blue">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  </div>
+                  <div class="recommendation-content">
+                    <div class="recommendation-title">Theo dõi User_03 và User_22</div>
+                    <div class="recommendation-desc">Lan truyền mạnh, nằm trong cụm nguy cơ.</div>
+                  </div>
+                  <span class="recommendation-priority p3">Ưu tiên 3</span>
+                </div>
+                <div class="recommendation-item">
+                  <div class="recommendation-icon purple">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  </div>
+                  <div class="recommendation-content">
+                    <div class="recommendation-title">Tăng cường nội dung phản bác</div>
+                    <div class="recommendation-desc">Tại cụm 1 và các nút trung gian trọng yếu.</div>
+                  </div>
+                  <span class="recommendation-priority p4">Ưu tiên 4</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <footer class="app-footer dash-footer">
-        <div><span data-i18n="dashboard.footerVer">Phiên bản</span> 1.0.0</div>
-        <div><span data-i18n="dashboard.footerUpd">Cập nhật</span>: <span class="tabular-nums" id="footerTimestamp">—</span></div>
+      <footer class="footer">
+        <span>Trường Sĩ quan Thông tin - Khoa CNTT - TC KGM</span>
+        <span>Phiên bản 1.0.0 | <span id="footerTimestamp">20/04/2026 10:30:45</span></span>
       </footer>
-    </div>
+    </main>
   </div>
-  <script src="/vendor/force-graph.min.js"></script>
-  <script src="/js/i18n.js"></script>
-  <script src="/js/network-viz.js"></script>
-  <script src="/js/script.js"></script>
+
+
+<div id="dataGenModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-head"><h3>Tạo dữ liệu mạng</h3><button type="button" class="modal-close" id="modalClose">&times;</button></div>
+    <div class="modal-body">
+      <div><label for="numUsers">Số người dùng</label><input type="number" id="numUsers" value="500" min="10" max="2000" step="10" /><small>10–2000</small></div>
+      <div><label for="relationshipProb">Xác suất có cạnh</label><input type="number" id="relationshipProb" value="0.025" min="0.001" max="0.1" step="0.001" /><small>0,001–0,1</small></div>
+      <div><label for="randomSeed">Seed</label><input type="number" id="randomSeed" value="42" min="1" max="9999" /></div>
+      <div><label for="dataSource">Nguồn</label><select id="dataSource"><option value="generate">Sinh ngẫu nhiên</option><option value="upload">Tải CSV</option></select></div>
+      <div id="fileUploadGroup" style="display:none"><label for="dataFile">File CSV</label><input type="file" id="dataFile" accept=".csv" /></div>
+    </div>
+    <div class="modal-foot"><button type="button" id="modalCancel">Hủy</button><button type="button" class="primary" id="btnConfirmGenerate">Tạo dữ liệu</button></div>
+  </div>
+</div>
+
+
+  <script src="/js/mau-shell.js"></script>
+  <script src="/js/mau-graph.js"></script>
+  <script src="/js/mau-dashboard.js"></script>
 </body>
 </html>
