@@ -13,19 +13,34 @@ import os
 import numpy as np
 import random
 import logging
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 from .graph_layout import spring_or_circular
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-# Render / máy chủ: ghi output vào thư mục outputs/ dưới root repo (get_latest_output_dir).
-# Có thể gán MO_PHONG_OUTPUT_ROOT=/path/đến/thư_mục_cha → dữ liệu nằm trong .../mo_phong_outputs/
-if os.getenv('MO_PHONG_OUTPUT_ROOT'):
-    OUTPUT_ROOT = Path(os.getenv('MO_PHONG_OUTPUT_ROOT', '')).resolve() / 'mo_phong_outputs'
-else:
-    OUTPUT_ROOT = _REPO_ROOT.resolve() / 'outputs'
+
+
+def _default_output_root() -> Path:
+    """Thư mục ghi dataset — trên Render dùng /tmp (ổ ghi được, tránh read-only)."""
+    explicit = os.getenv('MO_PHONG_OUTPUT_ROOT', '').strip()
+    if explicit:
+        return Path(explicit).resolve() / 'mo_phong_outputs'
+    if os.getenv('RENDER') or os.getenv('RENDER_SERVICE_ID'):
+        return Path(tempfile.gettempdir()) / 'mo_phong_outputs'
+    return _REPO_ROOT.resolve() / 'outputs'
+
+
+OUTPUT_ROOT = _default_output_root()
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+def _skip_heavy_viz() -> bool:
+    """Bỏ matplotlib PNG trên server (Render free ~512MB RAM dễ OOM → HTTP 500)."""
+    if os.getenv('MO_PHONG_SKIP_VIZ', '').strip().lower() in ('1', 'true', 'yes'):
+        return True
+    return bool(os.getenv('RENDER') or os.getenv('RENDER_SERVICE_ID'))
 
 # Cấu hình logging
 logging.basicConfig(
@@ -290,10 +305,13 @@ class SocialNetworkGenerator:
             relationships_df.to_csv(relationships_csv, index=False)
             logger.info(f"✓ Lưu quan hệ: {relationships_csv}")
             
-            adj_matrix = nx.to_pandas_adjacency(self.graph)
-            adj_matrix_csv = os.path.join(self.output_dir, 'adjacency_matrix.csv')
-            adj_matrix.to_csv(adj_matrix_csv)
-            logger.info(f"✓ Lưu ma trận kề: {adj_matrix_csv}")
+            if not _skip_heavy_viz() and self.num_users <= 800:
+                adj_matrix = nx.to_pandas_adjacency(self.graph)
+                adj_matrix_csv = os.path.join(self.output_dir, 'adjacency_matrix.csv')
+                adj_matrix.to_csv(adj_matrix_csv)
+                logger.info(f"✓ Lưu ma trận kề: {adj_matrix_csv}")
+            else:
+                logger.info('Bỏ qua ma trận kề (tiết kiệm RAM trên server)')
             
             metrics_df = self.calculate_metrics()
             metrics_csv = os.path.join(self.output_dir, 'metrics.csv')
@@ -423,7 +441,10 @@ class SocialNetworkGenerator:
             self.generate_relationships(relationship_prob)
             self.create_graph()
             self.print_statistics()
-            self.visualize_graph()
+            if _skip_heavy_viz():
+                logger.info('Bỏ qua visualize_graph (MO_PHONG_SKIP_VIZ / Render)')
+            else:
+                self.visualize_graph()
             metrics_df = self.save_data()
             
             logger.info("="*60)

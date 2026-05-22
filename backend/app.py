@@ -16,7 +16,7 @@ import shutil
 import math
 import random
 
-from .Tao_nguoi_dung_va_do_thi import SocialNetworkGenerator
+from .Tao_nguoi_dung_va_do_thi import SocialNetworkGenerator, OUTPUT_ROOT
 from .sir_models import PureSIRSimulation, SIRDynamicImmunization
 from .sir_sim_paths import (
     find_dynamic_sir_history_csv,
@@ -171,6 +171,12 @@ def get_latest_output_dir() -> Optional[Path]:
     candidates: list[Path] = []
     candidates += [p for p in OUTPUTS_DIR.glob('output_*') if p.is_dir()]
     candidates += [p for p in OUTPUTS_DIR.glob('output_uploaded_*') if p.is_dir()]
+    try:
+        OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+        candidates += [p for p in OUTPUT_ROOT.glob('output_*') if p.is_dir()]
+        candidates += [p for p in OUTPUT_ROOT.glob('output_uploaded_*') if p.is_dir()]
+    except OSError:
+        pass
     # Tương thích bộ cũ nằm trực tiếp dưới root repo
     candidates += [p for p in BASE_DIR.glob('output_*') if p.is_dir()]
     candidates += [p for p in BASE_DIR.glob('output_uploaded_*') if p.is_dir()]
@@ -187,18 +193,14 @@ def resolve_output_folder(output_dir: Optional[str]) -> Optional[Path]:
     if p.is_dir():
         return p
     name = p.name
-    cand = OUTPUTS_DIR / name
-    if cand.is_dir():
-        return cand
-    cand = BASE_DIR / name
-    if cand.is_dir():
-        return cand
-    cand = OUTPUTS_DIR / output_dir
-    if cand.is_dir():
-        return cand
-    cand = BASE_DIR / output_dir
-    if cand.is_dir():
-        return cand
+    for root in (OUTPUTS_DIR, BASE_DIR, OUTPUT_ROOT):
+        cand = root / name
+        if cand.is_dir():
+            return cand
+    for root in (OUTPUTS_DIR, BASE_DIR, OUTPUT_ROOT):
+        cand = root / output_dir
+        if cand.is_dir():
+            return cand
     return None
 
 
@@ -2163,6 +2165,17 @@ def api_run_generator():
         relationship_prob = float(payload.get('relationship_prob', 0.025))
         seed = int(payload.get('seed', 42))
 
+        on_render = bool(os.getenv('RENDER') or os.getenv('RENDER_SERVICE_ID'))
+        max_users = int(os.getenv('MO_PHONG_MAX_USERS', '350' if on_render else '2000'))
+        if num_users < 10 or num_users > max_users:
+            return json_safe_response(
+                {
+                    'error': f'Số người dùng phải từ 10 đến {max_users}.',
+                    'hint': 'Trên Render free nên dùng 200–350 user để tránh hết RAM.',
+                },
+                400,
+            )
+
         generator = SocialNetworkGenerator(num_users=num_users, seed=seed)
         generator.run(num_users=num_users, relationship_prob=relationship_prob)
 
@@ -2177,14 +2190,31 @@ def api_run_generator():
         top_nodes = _top_nodes_payload(users, metrics, graph, 10)
 
         return json_safe_response({
-            'output_folder': str(generator.output_dir),
-            'nodes': num_users,
-            'edges': len(generator.relationships),
+            'output_folder': str(folder.resolve()),
+            'nodes': int(graph.number_of_nodes()),
+            'edges': int(graph.number_of_edges()),
             'top_nodes': top_nodes,
         })
+    except MemoryError:
+        logger.exception('api_run_generator OOM')
+        return json_safe_response(
+            {
+                'error': 'Hết bộ nhớ khi tạo dữ liệu.',
+                'hint': 'Giảm số người dùng xuống 200–300 rồi thử lại.',
+            },
+            500,
+        )
     except Exception as e:
         logger.exception('api_run_generator failed')
-        return json_safe_response({'error': f'Lỗi tạo dữ liệu: {str(e)}'}, 500)
+        hint = (
+            'Giảm số user (200–300), kiểm tra Logs trên Render Dashboard.'
+            if os.getenv('RENDER') or os.getenv('RENDER_SERVICE_ID')
+            else None
+        )
+        body = {'error': f'Lỗi tạo dữ liệu: {str(e)}'}
+        if hint:
+            body['hint'] = hint
+        return json_safe_response(body, 500)
 
 
 @app.route('/api/run-simulate', methods=['POST'])

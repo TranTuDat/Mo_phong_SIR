@@ -11,3 +11,7 @@ services:
     envVars:
       - key: MPLBACKEND
         value: Agg
+      - key: MO_PHONG_SKIP_VIZ
+        value: "1"
+      - key: MO_PHONG_MAX_USERS
+        value: "350"

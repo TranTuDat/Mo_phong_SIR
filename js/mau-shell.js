@@ -27,7 +27,10 @@
     } catch {
       /* ignore */
     }
-    if (!res.ok) throw new Error(body.error || body.hint || `HTTP ${res.status}`);
+    if (!res.ok) {
+      const msg = body.error || body.hint || (body.message ? String(body.message) : '');
+      throw new Error(msg ? `${msg}` : `HTTP ${res.status} — xem Logs trên Render`);
+    }
     return body;
   }
 
