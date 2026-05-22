@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .graph_layout import spring_or_circular
+from .deploy_env import betweenness_sample_k, skip_heavy_viz, use_fast_graph_algorithms
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -35,12 +36,6 @@ def _default_output_root() -> Path:
 OUTPUT_ROOT = _default_output_root()
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-
-def _skip_heavy_viz() -> bool:
-    """Bỏ matplotlib PNG trên server (Render free ~512MB RAM dễ OOM → HTTP 500)."""
-    if os.getenv('MO_PHONG_SKIP_VIZ', '').strip().lower() in ('1', 'true', 'yes'):
-        return True
-    return bool(os.getenv('RENDER') or os.getenv('RENDER_SERVICE_ID'))
 
 # Cấu hình logging
 logging.basicConfig(
@@ -256,7 +251,13 @@ class SocialNetworkGenerator:
         try:
             logger.info("Bắt đầu tính toán các chỉ số mạng...")
             
-            betweenness = nx.betweenness_centrality(self.graph)
+            n = self.graph.number_of_nodes()
+            k_bet = betweenness_sample_k(n)
+            if k_bet is None:
+                betweenness = nx.betweenness_centrality(self.graph)
+            else:
+                logger.info('Betweenness xấp xỉ (k=%s) cho %s nút', k_bet, n)
+                betweenness = nx.betweenness_centrality(self.graph, k=k_bet)
             degree = nx.degree_centrality(self.graph)
             
             # Xử lý eigenvector centrality với error handling
@@ -305,7 +306,7 @@ class SocialNetworkGenerator:
             relationships_df.to_csv(relationships_csv, index=False)
             logger.info(f"✓ Lưu quan hệ: {relationships_csv}")
             
-            if not _skip_heavy_viz() and self.num_users <= 800:
+            if not skip_heavy_viz() and self.num_users <= 800:
                 adj_matrix = nx.to_pandas_adjacency(self.graph)
                 adj_matrix_csv = os.path.join(self.output_dir, 'adjacency_matrix.csv')
                 adj_matrix.to_csv(adj_matrix_csv)
@@ -398,7 +399,10 @@ class SocialNetworkGenerator:
             return
         
         try:
-            diameter = nx.diameter(self.graph) if nx.is_connected(self.graph) else "N/A"
+            if use_fast_graph_algorithms(self.graph.number_of_nodes()):
+                diameter = 'N/A (mạng lớn / server)'
+            else:
+                diameter = nx.diameter(self.graph) if nx.is_connected(self.graph) else "N/A"
             
             logger.info("="*60)
             logger.info("THỐNG KÊ MẠNG XÃ HỘI")
@@ -441,7 +445,7 @@ class SocialNetworkGenerator:
             self.generate_relationships(relationship_prob)
             self.create_graph()
             self.print_statistics()
-            if _skip_heavy_viz():
+            if skip_heavy_viz():
                 logger.info('Bỏ qua visualize_graph (MO_PHONG_SKIP_VIZ / Render)')
             else:
                 self.visualize_graph()

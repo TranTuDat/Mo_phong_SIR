@@ -21,7 +21,7 @@ Hướng dẫn đưa ứng dụng Flask (`app.py`) lên [Render](https://render.
 2. Cấu hình gợi ý:
    - **Runtime**: Python 3
    - **Build command**: `pip install --upgrade pip && pip install -r requirements.txt`
-   - **Start command**: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120`  
+   - **Start command**: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300`  
      (hoặc để trống nếu dùng `Procfile` — Render tự nhận.)
    - **Instance type**: Free
 3. **Environment** (biến môi trường):
@@ -35,8 +35,9 @@ Hướng dẫn đưa ứng dụng Flask (`app.py`) lên [Render](https://render.
 |--------|--------|
 | **Ổ đĩa** | Ổ instance là **tạm**: redeploy / sleep có thể **mất** thư mục `output_*` và kết quả SIR. Người dùng nên **tạo lại dữ liệu** sau khi service cold start lâu. |
 | **Sleep** | Free web **ngủ** khi không có traffic; lần mở đầu sau khi ngủ có thể **30–60 giây**. |
-| **Timeout** | Gunicorn `--timeout 120`: mô phỏng lớn (nhiều node / nhiều ngày) có thể cần giảm tham số hoặc tăng timeout trên plan trả phí. |
-| **RAM** | Giảm `num_users` khi «Tạo dữ liệu» nếu bị lỗi hết bộ nhớ. |
+| **Timeout** | Gunicorn `--timeout 300` trong `render.yaml`; mạng rất lớn có thể cần plan trả phí hoặc giảm ngày SIR. |
+| **RAM** | `MO_PHONG_SKIP_VIZ=1`: **không** lưu PNG matplotlib; hỗ trợ tới **5000** user (`MO_PHONG_MAX_USERS`). |
+| **Vẽ đồ thị** | Trên Render: không file `graph_visualization.png`; **dashboard web** (canvas) vẫn hoạt động. **Local**: vẫn lưu PNG khi không set `MO_PHONG_SKIP_VIZ`. |
 
 ## Biến môi trường tùy chọn
 
@@ -44,6 +45,8 @@ Hướng dẫn đưa ứng dụng Flask (`app.py`) lên [Render](https://render.
 |------|--------|
 | `MO_PHONG_OUTPUT_DIR` | Đường dẫn **tuyệt đối** tới một thư mục dataset `output_*` cố định (dùng khi cần trỏ sẵn một bộ dữ liệu). |
 | `MO_PHONG_OUTPUT_ROOT` | Thư mục **cha**; generator sẽ tạo con `mo_phong_outputs/` bên trong (mặc định **không** cần trên Render). |
+| `MO_PHONG_SKIP_VIZ` | `1` trên Render → bỏ PNG + ma trận kề nặng; **local** để trống để vẫn vẽ PNG. |
+| `MO_PHONG_MAX_USERS` | Giới hạn «Tạo dữ liệu» (mặc định **5000** trên Render, **10000** local). |
 | `APP_HOST` | Chỉ dùng khi chạy `python app.py` cục bộ; trên Render dùng Gunicorn, không cần. |
 
 Mặc định (sau chỉnh sửa code), dữ liệu sinh ra nằm **cùng thư mục code** (`output_*_users_*` ở root repo) để `get_latest_output_dir()` luôn tìm thấy — phù hợp Render.

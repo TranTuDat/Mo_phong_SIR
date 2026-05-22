@@ -1,112 +1,76 @@
-<!DOCTYPE html>
+# -*- coding: utf-8 -*-
+"""Sinh simulation.html và recommendations.html từ shell index.html."""
+from pathlib import Path
+import re
+
+ROOT = Path(__file__).resolve().parent
+INDEX = ROOT / "html" / "index.html"
+
+def extract_block(text, start_pat, end_pat):
+    m = re.search(start_pat, text, re.S)
+    if not m:
+        raise SystemExit(f"Missing: {start_pat}")
+    start = m.start()
+    m2 = re.search(end_pat, text[m.end() :], re.S)
+    if not m2:
+        raise SystemExit(f"Missing end: {end_pat}")
+    return text[start : m.end() + m2.end()]
+
+def sidebar(active: str) -> str:
+    idx = INDEX.read_text(encoding="utf-8")
+    aside = re.search(r"<aside class=\"sidebar\">.*?</aside>", idx, re.S).group(0)
+    aside = re.sub(r'class="nav-item active"', 'class="nav-item"', aside)
+    aside = re.sub(
+        rf'<div class="nav-item" data-mau-nav="{active}"',
+        f'<div class="nav-item active" data-mau-nav="{active}"',
+        aside,
+        count=1,
+    )
+    return aside
+
+def header_block() -> str:
+    idx = INDEX.read_text(encoding="utf-8")
+    return re.search(r"<header class=\"header\">.*?</header>", idx, re.S).group(0)
+
+def footer_block() -> str:
+    idx = INDEX.read_text(encoding="utf-8")
+    return re.search(r"<footer class=\"footer\">.*?</footer>", idx, re.S).group(0)
+
+def modal_block() -> str:
+    idx = INDEX.read_text(encoding="utf-8")
+    return re.search(r'<div id="dataGenModal".*?</div>\s*\n\s*\n', idx, re.S).group(0)
+
+def page_shell(active: str, title: str, body_inner: str, extra_head: str, scripts: str) -> str:
+    return f"""<!DOCTYPE html>
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Phân tích mạng — Mô phỏng SIR | InfoOps Analyzer</title>
+  <title>{title}</title>
   <link rel="stylesheet" href="/css/dashboard-mau.css" />
   <link rel="stylesheet" href="/css/mau-typography.css" />
   <link rel="stylesheet" href="/css/mau-pages.css" />
-  <script src="/vendor/chart.min.js"></script>
+{extra_head}
 </head>
-<body data-mau-page="simulation">
+<body data-mau-page="{active}">
 <div class="dashboard">
-<aside class="sidebar">
-      <div class="logo">
-        <div class="logo-icon">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
-        </div>
-        <div class="logo-text">
-          <h1>InfoOps Analyzer</h1>
-          <p>Công cụ phân tích mạng xã hội</p>
-        </div>
-      </div>
-
-      <nav class="nav-menu">
-        <div class="nav-item" data-mau-nav="overview">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-          <span>Tổng quan</span>
-        </div>
-        <div class="nav-item" id="menuOpenData" data-mau-nav="data">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          <span>Nhập dữ liệu</span>
-          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </div>
-        <div class="nav-item active" data-mau-nav="simulation">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-          <span>Phân tích mạng</span>
-          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </div>
-        <div class="nav-item" data-mau-nav="topnodes">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-          <span>Nút quan trọng</span>
-        </div>
-        <div class="nav-item" data-mau-nav="communities">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
-          <span>Cụm cộng đồng</span>
-        </div>
-        <div class="nav-item" data-mau-nav="risk">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <span>Điểm nguy cơ</span>
-        </div>
-        <div class="nav-item" data-mau-nav="recommendations">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          <span>Đề xuất can thiệp</span>
-        </div>
-        <div class="nav-item" data-mau-nav="report">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          <span>Báo cáo</span>
-        </div>
-      </nav>
-
-      <div class="data-info">
-        <h3>Thông tin dữ liệu</h3>
-        <div class="data-row">
-          <span>Tài khoản (Node):</span>
-          <span id="sideStatNodes">1,248</span>
-        </div>
-        <div class="data-row">
-          <span>Quan hệ (Edge):</span>
-          <span id="sideStatEdges">3,682</span>
-        </div>
-        <div class="data-row">
-          <span>Loại tương tác:</span>
-          <span>3</span>
-        </div>
-        <div class="data-row">
-          <span>Ngày dữ liệu:</span>
-          <span id="sideStatDate">20/04/2026</span>
-        </div>
-        <div class="data-ready" id="dataReadyBadge">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-          Dữ liệu đã sẵn sàng
-        </div>
-      </div>
-
-      <div class="sidebar-footer">
-        Trường Sĩ quan Thông tin - Khoa CNTT - TC KGM
-      </div>
-    </aside>
+{sidebar(active)}
     <main class="main-content">
-<header class="header">
-        <button type="button" class="header-btn" id="btnGuide">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Hướng dẫn
-        </button>
-        <button type="button" class="header-btn" id="btnReport">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          Báo cáo
-        </button>
-        <button type="button" class="header-btn" id="btnExport">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Xuất dữ liệu
-        </button>
-        <button type="button" class="header-btn" id="btnSettings">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-        </button>
-      </header>
+{header_block()}
       <div class="content mau-subpage-content">
+{body_inner}
+      </div>
+{footer_block()}
+    </main>
+  </div>
 
+{modal_block()}
+{scripts}
+</body>
+</html>
+"""
+
+SIM_BODY = """
         <div class="mau-sim-head">
           <div class="mau-sim-head-text">
             <h2 class="mau-page-title">Phân tích mạng</h2>
@@ -211,34 +175,118 @@
             </div>
           </div>
         </div>
+"""
 
-      </div>
-<footer class="footer">
-        <span>Trường Sĩ quan Thông tin - Khoa CNTT - TC KGM</span>
-        <span>Phiên bản 1.0.0 | <span id="footerTimestamp">20/04/2026 10:30:45</span></span>
-      </footer>
-    </main>
-  </div>
+REC_BODY = """
+        <div class="mau-rec-head">
+          <div class="mau-rec-head-text">
+            <h2 class="mau-page-title">Đề xuất can thiệp</h2>
+            <p class="mau-page-subtitle">So sánh chiến lược miễn nhiễm nút trọng yếu (SIR + can thiệp) — chọn phương án làm giảm đỉnh nhiễm đồng thời (I).</p>
+            <p class="mau-rec-meta">Bộ dữ liệu: <code id="recOutputFolder" class="rec-folder-code">—</code></p>
+          </div>
+          <div class="mau-rec-head-actions">
+            <a href="/simulation" class="card-btn rec-link-sim">Mô phỏng SIR</a>
+            <button type="button" class="sim-run-btn rec-refresh-btn" id="btnAnalyze">Phân tích lại</button>
+          </div>
+        </div>
+        <div id="recStatus" class="sim-status-msg rec-status-bar" role="status" hidden></div>
+        <div class="stats-row rec-kpi-row">
+          <div class="stat-card cyan rec-kpi">
+            <div class="stat-icon cyan"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93z"/></svg></div>
+            <div class="stat-content">
+              <div class="stat-label">SIR thuần — Max I</div>
+              <div class="stat-value mau-num" id="recPurePeakI">—</div>
+              <div class="stat-change">Kịch bản không can thiệp</div>
+            </div>
+          </div>
+          <div class="stat-card blue rec-kpi">
+            <div class="stat-icon blue"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg></div>
+            <div class="stat-content">
+              <div class="stat-label">SIR thuần — Ngày đỉnh</div>
+              <div class="stat-value mau-num" id="recPurePeakDay">—</div>
+              <div class="stat-change">Tham chiếu thời gian</div>
+            </div>
+          </div>
+          <div class="stat-card red rec-kpi">
+            <div class="stat-icon red"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg></div>
+            <div class="stat-content">
+              <div class="stat-label">Can thiệp tốt nhất — Max I</div>
+              <div class="stat-value mau-num" id="recWinnerPeakI">—</div>
+              <div class="stat-change" id="recWinnerDelta">—</div>
+            </div>
+          </div>
+          <div class="stat-card yellow rec-kpi">
+            <div class="stat-icon yellow"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
+            <div class="stat-content">
+              <div class="stat-label">Chiến lược đề xuất</div>
+              <div class="stat-value rec-strat-name" id="recWinnerStrategy">—</div>
+              <div class="stat-change" id="recWinnerFinal">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="rec-main-grid">
+          <div class="card rec-table-card">
+            <div class="card-header">
+              <span class="card-title">So sánh chiến lược can thiệp</span>
+              <span class="rec-table-hint">Hàng tô xanh = đề xuất</span>
+            </div>
+            <div class="card-body rec-table-body">
+              <div class="table-container">
+                <table class="rec-table">
+                  <thead><tr><th>Chiến lược</th><th>Đỉnh I</th><th>Ngày đỉnh</th><th>Ngày kết thúc</th><th>Trạng thái</th></tr></thead>
+                  <tbody id="recStrategiesBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card rec-winner-card">
+            <div class="card-header"><span class="card-title">Kết luận &amp; nút ưu tiên</span></div>
+            <div class="card-body">
+              <div class="recommendation-item rec-winner-hero rec-winner-empty" id="recWinnerHero">
+                <div class="recommendation-icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+                <div class="recommendation-content">
+                  <div class="recommendation-title" id="recWinnerTitle">Chưa có đề xuất</div>
+                  <div class="recommendation-desc" id="recWinnerSummary">Chạy mô phỏng SIR + can thiệp tại Phân tích mạng.</div>
+                </div>
+                <span class="recommendation-priority p1">Ưu tiên 1</span>
+              </div>
+              <h4 class="rec-nodes-heading">Danh sách nút miễn nhiễm (Top-k)</h4>
+              <ul id="recWinnerNodes" class="rec-node-list"></ul>
+            </div>
+          </div>
+        </div>
+        <div class="card rec-rationale-card">
+          <div class="card-header"><span class="card-title">Tiêu chí xếp hạng khoa học</span></div>
+          <div class="card-body"><p id="recRationale" class="rec-rationale-text"></p></div>
+        </div>
+"""
 
-<div id="dataGenModal" class="modal-overlay">
-  <div class="modal-box">
-    <div class="modal-head"><h3>Tạo dữ liệu mạng</h3><button type="button" class="modal-close" id="modalClose">&times;</button></div>
-    <div class="modal-body">
-      <div><label for="numUsers">Số người dùng</label><input type="number" id="numUsers" value="500" min="10" max="10000" step="10" /><small>Đang tải giới hạn…</small></div>
-      <div><label for="relationshipProb">Xác suất có cạnh</label><input type="number" id="relationshipProb" value="0.025" min="0.001" max="0.1" step="0.001" /><small>0,001–0,1</small></div>
-      <div><label for="randomSeed">Seed</label><input type="number" id="randomSeed" value="42" min="1" max="9999" /></div>
-      <div><label for="dataSource">Nguồn</label><select id="dataSource"><option value="generate">Sinh ngẫu nhiên</option><option value="upload">Tải CSV</option></select></div>
-      <div id="fileUploadGroup" style="display:none"><label for="dataFile">File CSV</label><input type="file" id="dataFile" accept=".csv" /></div>
-    </div>
-    <div class="modal-foot"><button type="button" id="modalCancel">Hủy</button><button type="button" class="primary" id="btnConfirmGenerate">Tạo dữ liệu</button></div>
-  </div>
-</div>
-
-
-
-  <script src="/js/i18n.js"></script>
+def main():
+    (ROOT / "html" / "simulation.html").write_text(
+        page_shell(
+            "simulation",
+            "Phân tích mạng — Mô phỏng SIR | InfoOps Analyzer",
+            SIM_BODY,
+            '  <script src="/vendor/chart.min.js"></script>',
+            """  <script src="/js/i18n.js"></script>
   <script src="/js/mau-shell.js"></script>
   <script src="/vendor/chart.min.js"></script>
-  <script src="/js/sir_page.js"></script>
-</body>
-</html>
+  <script src="/js/sir_page.js"></script>""",
+        ),
+        encoding="utf-8",
+    )
+    (ROOT / "html" / "recommendations.html").write_text(
+        page_shell(
+            "recommendations",
+            "Đề xuất can thiệp | InfoOps Analyzer",
+            REC_BODY,
+            "",
+            """  <script src="/js/mau-shell.js"></script>
+  <script src="/js/recommendations.js"></script>""",
+        ),
+        encoding="utf-8",
+    )
+    print("Built simulation.html, recommendations.html")
+
+if __name__ == "__main__":
+    main()

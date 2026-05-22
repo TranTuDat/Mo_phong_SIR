@@ -6,7 +6,7 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 180 --access-logfile -
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --access-logfile -
     healthCheckPath: /
     envVars:
       - key: MPLBACKEND
@@ -14,4 +14,4 @@ services:
       - key: MO_PHONG_SKIP_VIZ
         value: "1"
       - key: MO_PHONG_MAX_USERS
-        value: "350"
+        value: "5000"

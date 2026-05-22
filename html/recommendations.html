@@ -105,45 +105,116 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </header>
-      <div class="content mau-subpage-content">
+      <div class="content mau-subpage-content rec-page">
 
-        <div class="mau-page-head">
-          <h2 class="mau-page-title">Đề xuất can thiệp</h2>
-          <p class="mau-hint">Bộ dữ liệu: <strong id="recOutputFolder" class="mau-num">—</strong></p>
-        </div>
-        <div id="recStatus" class="sim-status-msg" role="status"></div>
-        <div class="card mau-rec-card">
-          <div class="card-header"><span class="card-title">Tiêu chí đề xuất</span></div>
-          <div class="card-body"><p id="recRationale" class="mau-note"></p></div>
-        </div>
-        <div class="card mau-rec-card">
-          <div class="card-header"><span class="card-title">SIR thuần (tham chiếu)</span></div>
-          <div class="card-body mau-rec-grid">
-            <div><span class="mau-label">Đỉnh I</span><p id="recPurePeakI" class="mau-value mau-num">—</p></div>
-            <div><span class="mau-label">Ngày đỉnh</span><p id="recPurePeakDay" class="mau-value mau-num">—</p></div>
-            <div><span class="mau-label">Ngày kết thúc</span><p id="recPureFinal" class="mau-value mau-num">—</p></div>
+        <div class="mau-rec-head">
+          <div class="mau-rec-head-text">
+            <h2 class="mau-page-title">Đề xuất can thiệp</h2>
+            <p class="mau-page-subtitle">So sánh chiến lược miễn nhiễm nút trọng yếu (SIR + can thiệp) — chọn phương án làm giảm đỉnh nhiễm đồng thời (I).</p>
+            <p class="mau-rec-meta">Bộ dữ liệu: <code id="recOutputFolder" class="rec-folder-code">—</code></p>
+          </div>
+          <div class="mau-rec-head-actions">
+            <a href="/simulation" class="card-btn rec-link-sim">Mô phỏng SIR</a>
+            <button type="button" class="sim-run-btn rec-refresh-btn" id="btnAnalyze">Phân tích lại</button>
           </div>
         </div>
-        <div class="card mau-rec-card">
-          <div class="card-header">
-            <span class="card-title">So sánh can thiệp</span>
-            <button type="button" class="card-btn" id="btnAnalyze">Phân tích lại</button>
+
+        <div id="recStatus" class="sim-status-msg rec-status-bar" role="status" hidden></div>
+
+        <div class="stats-row rec-kpi-row">
+          <div class="stat-card cyan rec-kpi">
+            <div class="stat-icon cyan">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93z"/></svg>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">SIR thuần — Max I</div>
+              <div class="stat-value mau-num" id="recPurePeakI">—</div>
+              <div class="stat-change">Kịch bản không can thiệp</div>
+            </div>
           </div>
-          <div class="card-body" style="padding:0">
-            <div class="table-container">
-              <table>
-                <thead><tr><th>Chiến lược</th><th>Đỉnh I</th><th>Ngày đỉnh</th><th>Ngày kết thúc</th><th>Trạng thái</th></tr></thead>
-                <tbody id="recStrategiesBody"></tbody>
-              </table>
+          <div class="stat-card blue rec-kpi">
+            <div class="stat-icon blue">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">SIR thuần — Ngày đỉnh</div>
+              <div class="stat-value mau-num" id="recPurePeakDay">—</div>
+              <div class="stat-change">Tham chiếu thời gian</div>
+            </div>
+          </div>
+          <div class="stat-card red rec-kpi">
+            <div class="stat-icon red">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Can thiệp tốt nhất — Max I</div>
+              <div class="stat-value mau-num" id="recWinnerPeakI">—</div>
+              <div class="stat-change" id="recWinnerDelta">—</div>
+            </div>
+          </div>
+          <div class="stat-card yellow rec-kpi">
+            <div class="stat-icon yellow">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            </div>
+            <div class="stat-content">
+              <div class="stat-label">Chiến lược đề xuất</div>
+              <div class="stat-value rec-strat-name" id="recWinnerStrategy">—</div>
+              <div class="stat-change" id="recWinnerFinal">—</div>
             </div>
           </div>
         </div>
-        <div class="card mau-rec-card">
-          <div class="card-header"><span class="card-title">Đề xuất</span></div>
+
+        <div class="rec-main-grid">
+          <div class="card rec-table-card">
+            <div class="card-header">
+              <span class="card-title">So sánh chiến lược can thiệp</span>
+              <span class="rec-table-hint">Hàng tô xanh = đề xuất</span>
+            </div>
+            <div class="card-body rec-table-body">
+              <div class="table-container">
+                <table class="rec-table">
+                  <thead>
+                    <tr>
+                      <th>Chiến lược</th>
+                      <th>Đỉnh I</th>
+                      <th>Ngày đỉnh</th>
+                      <th>Ngày kết thúc</th>
+                      <th>Trạng thái</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recStrategiesBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="card rec-winner-card">
+            <div class="card-header">
+              <span class="card-title">Kết luận &amp; nút ưu tiên</span>
+            </div>
+            <div class="card-body">
+              <div class="recommendation-item rec-winner-hero rec-winner-empty" id="recWinnerHero">
+                <div class="recommendation-icon green">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <div class="recommendation-content">
+                  <div class="recommendation-title" id="recWinnerTitle">Chưa có đề xuất</div>
+                  <div class="recommendation-desc" id="recWinnerSummary">Chạy mô phỏng SIR + can thiệp (Betweenness, Degree, Eigenvector) tại menu Phân tích mạng.</div>
+                </div>
+                <span class="recommendation-priority p1">Ưu tiên 1</span>
+              </div>
+              <h4 class="rec-nodes-heading">Danh sách nút miễn nhiễm (Top-k)</h4>
+              <ul id="recWinnerNodes" class="rec-node-list"></ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="card rec-rationale-card">
+          <div class="card-header">
+            <span class="card-title">Tiêu chí xếp hạng khoa học</span>
+          </div>
           <div class="card-body">
-            <p id="recWinnerSummary" class="mau-note">—</p>
-            <h4 class="mau-subhead">Nút can thiệp</h4>
-            <ul id="recWinnerNodes" class="mau-node-list"></ul>
+            <p id="recRationale" class="rec-rationale-text"></p>
           </div>
         </div>
 
@@ -159,7 +230,7 @@
   <div class="modal-box">
     <div class="modal-head"><h3>Tạo dữ liệu mạng</h3><button type="button" class="modal-close" id="modalClose">&times;</button></div>
     <div class="modal-body">
-      <div><label for="numUsers">Số người dùng</label><input type="number" id="numUsers" value="300" min="10" max="2000" step="10" /><small>10–2000 (Render: nên 200–300)</small></div>
+      <div><label for="numUsers">Số người dùng</label><input type="number" id="numUsers" value="500" min="10" max="10000" step="10" /><small>Đang tải giới hạn…</small></div>
       <div><label for="relationshipProb">Xác suất có cạnh</label><input type="number" id="relationshipProb" value="0.025" min="0.001" max="0.1" step="0.001" /><small>0,001–0,1</small></div>
       <div><label for="randomSeed">Seed</label><input type="number" id="randomSeed" value="42" min="1" max="9999" /></div>
       <div><label for="dataSource">Nguồn</label><select id="dataSource"><option value="generate">Sinh ngẫu nhiên</option><option value="upload">Tải CSV</option></select></div>

@@ -16,6 +16,7 @@ import shutil
 import math
 import random
 
+from .deploy_env import max_users_limit, on_render_deploy, skip_heavy_viz, use_fast_graph_algorithms
 from .Tao_nguoi_dung_va_do_thi import SocialNetworkGenerator, OUTPUT_ROOT
 from .sir_models import PureSIRSimulation, SIRDynamicImmunization
 from .sir_sim_paths import (
@@ -1765,11 +1766,16 @@ def build_graph_payload(*, viz: str = 'summary'):
     _cached_graph = graph
     _cached_output = folder
 
-    try:
-        communities = list(nx.community.greedy_modularity_communities(graph))
-    except Exception as exc:
-        logger.warning('greedy_modularity_communities failed (%s); single cluster', exc)
-        communities = [set(graph.nodes())] if graph.number_of_nodes() else []
+    n_total_early = graph.number_of_nodes()
+    if use_fast_graph_algorithms(n_total_early):
+        logger.info('Phân cụm nhanh (một cụm) cho mạng %s nút trên server / mạng lớn', n_total_early)
+        communities = [set(graph.nodes())] if n_total_early else []
+    else:
+        try:
+            communities = list(nx.community.greedy_modularity_communities(graph))
+        except Exception as exc:
+            logger.warning('greedy_modularity_communities failed (%s); single cluster', exc)
+            communities = [set(graph.nodes())] if n_total_early else []
 
     communities = sorted(communities, key=lambda c: (-len(c), min(c)))
 
@@ -2079,6 +2085,25 @@ def recommendations_page():
     return send_from_directory(str(HTML_DIR), 'recommendations.html')
 
 
+@app.route('/api/config')
+def api_config():
+    """Cấu hình UI: giới hạn user, có vẽ PNG matplotlib hay không."""
+    on_render = on_render_deploy()
+    skip_viz = skip_heavy_viz()
+    max_u = max_users_limit()
+    return jsonify({
+        'on_render': on_render,
+        'skip_graph_viz': skip_viz,
+        'viz_png_enabled': not skip_viz,
+        'max_users': max_u,
+        'hint_generate': (
+            f'Tối đa {max_u} user. Server không lưu PNG matplotlib; biểu đồ web vẫn dùng dữ liệu CSV.'
+            if skip_viz
+            else f'Tối đa {max_u} user. Máy local: lưu thêm graph_visualization.png.'
+        ),
+    })
+
+
 @app.route('/api/summary')
 def api_summary():
     try:
@@ -2165,13 +2190,17 @@ def api_run_generator():
         relationship_prob = float(payload.get('relationship_prob', 0.025))
         seed = int(payload.get('seed', 42))
 
-        on_render = bool(os.getenv('RENDER') or os.getenv('RENDER_SERVICE_ID'))
-        max_users = int(os.getenv('MO_PHONG_MAX_USERS', '350' if on_render else '2000'))
+        max_users = max_users_limit()
         if num_users < 10 or num_users > max_users:
+            hint = (
+                f'Tối đa {max_users} user trên server (không vẽ PNG, dùng betweenness xấp xỉ).'
+                if skip_heavy_viz()
+                else f'Tối đa {max_users} user.'
+            )
             return json_safe_response(
                 {
                     'error': f'Số người dùng phải từ 10 đến {max_users}.',
-                    'hint': 'Trên Render free nên dùng 200–350 user để tránh hết RAM.',
+                    'hint': hint,
                 },
                 400,
             )
@@ -2200,15 +2229,15 @@ def api_run_generator():
         return json_safe_response(
             {
                 'error': 'Hết bộ nhớ khi tạo dữ liệu.',
-                'hint': 'Giảm số người dùng xuống 200–300 rồi thử lại.',
+                'hint': f'Giảm số user (ví dụ ≤ {max(500, max_users_limit() // 2)}) rồi thử lại.',
             },
             500,
         )
     except Exception as e:
         logger.exception('api_run_generator failed')
         hint = (
-            'Giảm số user (200–300), kiểm tra Logs trên Render Dashboard.'
-            if os.getenv('RENDER') or os.getenv('RENDER_SERVICE_ID')
+            f'Giảm số user hoặc tăng timeout Render. Giới hạn hiện tại: {max_users_limit()}.'
+            if on_render_deploy()
             else None
         )
         body = {'error': f'Lỗi tạo dữ liệu: {str(e)}'}

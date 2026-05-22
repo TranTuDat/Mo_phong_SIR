@@ -2,20 +2,47 @@
  * Trang gợi ý can thiệp /recommendations
  */
 (function () {
+  const STRATEGY_META = {
+    betweenness: { vi: 'Betweenness', sub: 'Trung gian (cầu nối)', en: 'Betweenness' },
+    degree: { vi: 'Degree', sub: 'Bậc cao (kết nối nhiều)', en: 'Degree' },
+    eigenvector: { vi: 'Eigenvector', sub: 'Ảnh hưởng lan truyền', en: 'Eigenvector' },
+  };
+
   function getLang() {
     return window.I18N && window.I18N.getLang ? window.I18N.getLang() : 'vi';
   }
 
   const VI = {
-    'rec.statusOk': 'Có dữ liệu',
+    'rec.statusOk': 'Đã mô phỏng',
     'rec.statusMissing': 'Chưa chạy',
+    'rec.statusWinner': 'Đề xuất',
     'rec.winnerNone': 'Chưa có đề xuất — chạy mô phỏng SIR + can thiệp trước.',
+    'rec.winnerTitle': 'Can thiệp theo {strategy}',
+    'rec.winnerDesc':
+      'Đỉnh I = {peak}, ngày đỉnh = {peakDay}, kết thúc dịch ngày {final}. Ưu tiên miễn nhiễm các nút bên dưới.',
+    'rec.deltaDown': 'Giảm {n} ca so với SIR thuần',
+    'rec.deltaUp': 'Cao hơn SIR thuần {n} ca',
+    'rec.deltaSame': 'Bằng đỉnh SIR thuần',
+    'rec.finalDay': 'Kết thúc dịch: ngày {d}',
     'rec.errLoad': 'Không tải được phân tích:',
+    'rec.loading': 'Đang phân tích…',
   };
 
-  function t(key) {
-    if (window.I18N && window.I18N.t) return window.I18N.t(key);
-    return VI[key] || key;
+  function t(key, vars) {
+    let s = window.I18N && window.I18N.t ? window.I18N.t(key) : VI[key] || key;
+    if (vars) {
+      Object.keys(vars).forEach((k) => {
+        s = s.replace(new RegExp(`\\{${k}\\}`, 'g'), String(vars[k]));
+      });
+    }
+    return s;
+  }
+
+  function strategyLabel(key) {
+    const meta = STRATEGY_META[key] || { vi: key, sub: '', en: key };
+    const lang = getLang();
+    if (lang === 'en') return { title: meta.en, sub: meta.sub };
+    return { title: meta.vi, sub: meta.sub };
   }
 
   async function fetchJson(url) {
@@ -28,59 +55,132 @@
   function setStatus(msg, type) {
     const el = document.getElementById('recStatus');
     if (!el) return;
-    el.textContent = msg || '';
-    el.className = 'sim-status-msg ' + (type || 'info');
+    if (!msg) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.hidden = false;
+    el.textContent = msg;
+    el.className = 'sim-status-msg rec-status-bar ' + (type || 'info');
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text ?? '—';
+  }
+
+  function formatDelta(purePeak, winnerPeak) {
+    if (purePeak == null || winnerPeak == null) return '—';
+    const d = winnerPeak - purePeak;
+    if (d < 0) return t('rec.deltaDown', { n: Math.abs(d) });
+    if (d > 0) return t('rec.deltaUp', { n: d });
+    return t('rec.deltaSame');
   }
 
   function renderAnalysis(data) {
-    const folderEl = document.getElementById('recOutputFolder');
-    if (folderEl) folderEl.textContent = data.output_folder || '—';
+    setText('recOutputFolder', data.output_folder || '—');
 
     const rat = document.getElementById('recRationale');
     if (rat) {
-      rat.textContent = getLang() === 'en' ? data.rationale_en : data.rationale_vi;
+      rat.textContent =
+        (getLang() === 'en' ? data.rationale_en : data.rationale_vi) ||
+        '—';
     }
 
     const p = data.pure_sir;
-    document.getElementById('recPurePeakI').textContent = p ? String(p.peak_infected) : '—';
-    document.getElementById('recPurePeakDay').textContent = p ? String(p.peak_day) : '—';
-    document.getElementById('recPureFinal').textContent = p ? String(p.final_day) : '—';
-
-    const tbody = document.getElementById('recStrategiesBody');
-    tbody.innerHTML = '';
-    (data.strategies || []).forEach((row) => {
-      const tr = document.createElement('tr');
-      const stLabel = row.available ? t('rec.statusOk') : t('rec.statusMissing');
-      tr.innerHTML = `
-        <td>${row.strategy}</td>
-        <td class="tabular-nums">${row.available ? row.peak_infected : '—'}</td>
-        <td class="tabular-nums">${row.available ? row.peak_day : '—'}</td>
-        <td class="tabular-nums">${row.available ? row.final_day : '—'}</td>
-        <td>${stLabel}</td>
-      `;
-      tbody.appendChild(tr);
-    });
+    setText('recPurePeakI', p != null ? p.peak_infected : '—');
+    setText('recPurePeakDay', p != null ? p.peak_day : '—');
 
     const win = data.winner;
-    const sumEl = document.getElementById('recWinnerSummary');
+    const tbody = document.getElementById('recStrategiesBody');
+    if (tbody) tbody.innerHTML = '';
+
+    if (win) {
+      const lbl = strategyLabel(win.strategy);
+      setText('recWinnerPeakI', win.peak_infected);
+      setText('recWinnerStrategy', lbl.title);
+      setText('recWinnerFinal', t('rec.finalDay', { d: win.final_day }));
+      setText('recWinnerDelta', formatDelta(p?.peak_infected, win.peak_infected));
+
+      const titleEl = document.getElementById('recWinnerTitle');
+      const sumEl = document.getElementById('recWinnerSummary');
+      const hero = document.getElementById('recWinnerHero');
+      if (titleEl) {
+        titleEl.textContent = t('rec.winnerTitle', { strategy: lbl.title });
+      }
+      if (sumEl) {
+        sumEl.textContent = t('rec.winnerDesc', {
+          peak: win.peak_infected,
+          peakDay: win.peak_day,
+          final: win.final_day,
+        });
+      }
+      if (hero) {
+        hero.classList.remove('rec-winner-empty');
+      }
+    } else {
+      setText('recWinnerPeakI', '—');
+      setText('recWinnerStrategy', '—');
+      setText('recWinnerFinal', '—');
+      setText('recWinnerDelta', '—');
+      const titleEl = document.getElementById('recWinnerTitle');
+      const sumEl = document.getElementById('recWinnerSummary');
+      const hero = document.getElementById('recWinnerHero');
+      if (titleEl) titleEl.textContent = 'Chưa có đề xuất';
+      if (sumEl) sumEl.textContent = t('rec.winnerNone');
+      if (hero) hero.classList.add('rec-winner-empty');
+    }
+
+    (data.strategies || []).forEach((row) => {
+      const lbl = strategyLabel(row.strategy);
+      const tr = document.createElement('tr');
+      const isWinner = win && row.available && row.strategy === win.strategy;
+      if (isWinner) tr.className = 'rec-row-winner';
+
+      let badgeClass = 'missing';
+      let badgeText = t('rec.statusMissing');
+      if (row.available) {
+        badgeClass = isWinner ? 'winner' : 'ok';
+        badgeText = isWinner ? t('rec.statusWinner') : t('rec.statusOk');
+      }
+
+      tr.innerHTML = `
+        <td>
+          <div class="rec-strat-cell">
+            <strong>${escapeHtml(lbl.title)}</strong>
+            <span>${escapeHtml(lbl.sub)}</span>
+          </div>
+        </td>
+        <td class="tabular-nums mau-num">${row.available ? row.peak_infected : '—'}</td>
+        <td class="tabular-nums mau-num">${row.available ? row.peak_day : '—'}</td>
+        <td class="tabular-nums mau-num">${row.available ? row.final_day : '—'}</td>
+        <td><span class="rec-badge ${badgeClass}">${badgeText}</span></td>
+      `;
+      tbody?.appendChild(tr);
+    });
+
     const listEl = document.getElementById('recWinnerNodes');
+    if (!listEl) return;
     listEl.innerHTML = '';
 
-    if (!win) {
-      sumEl.textContent = t('rec.winnerNone');
+    if (!win || !(win.intervened_nodes || []).length) {
+      const li = document.createElement('li');
+      li.className = 'rec-node-empty';
+      li.textContent = '—';
+      listEl.appendChild(li);
       return;
     }
 
-    const stratLabel = win.strategy;
-    sumEl.textContent =
-      getLang() === 'en'
-        ? `Best strategy: ${stratLabel} (lower peak I = ${win.peak_infected}, end day = ${win.final_day}).`
-        : `Chiến lược được đề xuất: ${stratLabel} (đỉnh I = ${win.peak_infected}, ngày kết thúc = ${win.final_day}).`;
-
-    (win.intervened_nodes || []).forEach((n) => {
+    win.intervened_nodes.forEach((n, i) => {
       const li = document.createElement('li');
-      li.className = '';
-      li.innerHTML = `<div><strong class="tabular-nums">${n.id}</strong> — ${escapeHtml(n.name)}</div>`;
+      li.innerHTML = `
+        <span class="rec-node-rank">${i + 1}</span>
+        <div class="rec-node-info">
+          <strong class="tabular-nums">#${escapeHtml(n.id)}</strong>
+          <span>${escapeHtml(n.name)}</span>
+        </div>
+      `;
       listEl.appendChild(li);
     });
   }
@@ -94,7 +194,7 @@
   }
 
   async function loadAnalysis() {
-    setStatus('…', 'loading');
+    setStatus(t('rec.loading'), 'loading');
     try {
       const summary = await fetchJson('/api/summary');
       const folder = summary.output_folder;
@@ -105,7 +205,12 @@
       if (data.warning) {
         setStatus(data.warning, 'error');
       } else if (!data.strategies?.some((s) => s.available)) {
-        setStatus(data.hint || summary.hint || '', 'info');
+        setStatus(
+          data.hint ||
+            summary.hint ||
+            'Chưa có kết quả can thiệp. Vào Phân tích mạng → chạy SIR + can thiệp (3 chiến lược).',
+          'info'
+        );
       } else {
         setStatus('', 'info');
       }

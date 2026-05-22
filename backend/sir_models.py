@@ -9,6 +9,7 @@ import random
 import logging
 from pathlib import Path
 
+from .deploy_env import betweenness_sample_k
 from .sir_sim_paths import dynamic_dataset_subdir_fs, pure_dataset_subdir_fs
 
 # Cấu hình logging
@@ -161,6 +162,7 @@ class PureSIRSimulation:
 
             n = self.graph.number_of_nodes()
             node_list = list(self.graph.nodes())
+            idx_of = {node_list[i]: i for i in range(n)}
 
             # 0=S, 1=I, 2=R
             state = np.zeros(n, dtype=int)
@@ -197,16 +199,15 @@ class PureSIRSimulation:
                         # lây nhiễm
                         node_id = node_list[i]
                         for nei in self.graph.neighbors(node_id):
-                            nei_idx = node_list.index(nei)
-                            if state[nei_idx] == 0:
-                                if random.random() < transmission_rate:
-                                    new_state[nei_idx] = 1
+                            nei_idx = idx_of[nei]
+                            if state[nei_idx] == 0 and random.random() < transmission_rate:
+                                new_state[nei_idx] = 1
 
                 state = new_state
 
-                S = np.sum(state == 0)
-                I = np.sum(state == 1)
-                R = np.sum(state == 2)
+                S = int(np.sum(state == 0))
+                I = int(np.sum(state == 1))
+                R = int(np.sum(state == 2))
 
                 history['day'].append(day)
                 history['S'].append(S)
@@ -518,8 +519,14 @@ class SIRDynamicImmunization:
                     score = {int(n): int(d) for n, d in self.graph.degree()}
                 key_name = "eig"
             else:
-                logger.info("Tính toán betweenness centrality ...")
-                bet = nx.betweenness_centrality(self.graph)
+                n = self.graph.number_of_nodes()
+                k_bet = betweenness_sample_k(n)
+                if k_bet is None:
+                    logger.info("Tính toán betweenness centrality ...")
+                    bet = nx.betweenness_centrality(self.graph)
+                else:
+                    logger.info("Betweenness xấp xỉ (k=%s) cho %s nút ...", k_bet, n)
+                    bet = nx.betweenness_centrality(self.graph, k=k_bet)
                 score = {int(n): float(v) for n, v in bet.items()}
                 key_name = "bet"
 
@@ -578,6 +585,7 @@ class SIRDynamicImmunization:
 
             node_list = list(self.graph.nodes())
             n = len(node_list)
+            idx_of = {node_list[i]: i for i in range(n)}
 
             state = np.zeros(n, dtype=int)  # 0=S,1=I,2=R
 
@@ -612,7 +620,7 @@ class SIRDynamicImmunization:
                         # lây
                         node_id = node_list[i]
                         for nei in self.graph.neighbors(node_id):
-                            j = node_list.index(nei)
+                            j = idx_of[nei]
                             if state[j] == 0 and random.random() < transmission_rate:
                                 new_state[j] = 1
 
@@ -626,8 +634,7 @@ class SIRDynamicImmunization:
                     self.immunized_nodes = list(top_nodes)
 
                     for node in top_nodes:
-                        idx = node_list.index(node)
-                        state[idx] = 2
+                        state[idx_of[node]] = 2
 
                     immunized = True
                     immune_day = day
@@ -637,9 +644,9 @@ class SIRDynamicImmunization:
                 # =====================
                 # GHI LỊCH SỬ
                 # =====================
-                S = np.sum(state == 0)
-                I = np.sum(state == 1)
-                R = np.sum(state == 2)
+                S = int(np.sum(state == 0))
+                I = int(np.sum(state == 1))
+                R = int(np.sum(state == 2))
 
                 history['day'].append(day)
                 history['S'].append(S)

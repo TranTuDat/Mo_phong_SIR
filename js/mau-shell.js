@@ -196,12 +196,33 @@
     });
   }
 
+  async function applyServerConfig() {
+    try {
+      const cfg = await fetchJson('/api/config');
+      const nu = document.getElementById('numUsers');
+      const hint = nu?.closest('div')?.querySelector('small');
+      const maxU = Number(cfg.max_users) || 10000;
+      if (nu) {
+        nu.max = String(maxU);
+        if (parseInt(nu.value, 10) > maxU) nu.value = String(Math.min(maxU, 3000));
+      }
+      if (hint) {
+        hint.textContent = cfg.hint_generate || `10–${maxU}`;
+      }
+      document.body.dataset.skipGraphViz = cfg.skip_graph_viz ? '1' : '0';
+      return cfg;
+    } catch {
+      return null;
+    }
+  }
+
   function init(options = {}) {
     const page = options.page || document.body.getAttribute('data-mau-page') || 'overview';
     const onDataReady = options.onDataReady;
     bindNavigation(page, onDataReady);
     bindHeader();
     bindModal(onDataReady);
+    applyServerConfig();
     refreshSideStats();
     if (page === 'overview' && window.location.hash) {
       const el = document.querySelector(window.location.hash);

@@ -79,6 +79,26 @@ const I18N = {
     'nav.risks': 'Điểm nguy cơ',
     'nav.reports': 'Báo cáo',
     'dashboard.institution': 'Khóa luận · Mô phỏng mạng xã hội',
+    'dashboard.institutionFooter': 'Trường Sĩ quan Thông tin - Khoa CNTT - TC KGM',
+    'dashboard.dataInfoTitle': 'Thông tin dữ liệu',
+    'dashboard.sideNodes': 'Tài khoản (Node):',
+    'dashboard.sideEdges': 'Quan hệ (Edge):',
+    'dashboard.sideTypes': 'Loại tương tác:',
+    'dashboard.sideDate': 'Ngày dữ liệu:',
+    'dashboard.topNodesFull': 'Top 10 nút quan trọng (theo điểm nguy cơ)',
+    'dashboard.profileTitleFull': 'Thông tin tài khoản đang chọn',
+    'dashboard.profileRoleLbl': 'Vai:',
+    'dashboard.profileDescLbl': 'Mô tả:',
+    'dashboard.clusterCountLabel': 'Số cụm:',
+    'dashboard.labelsOff': 'Ẩn nhãn',
+    'dashboard.filterAll': 'Tất cả',
+    'dashboard.trendDensity': 'Mật độ mạng {d}%',
+    'dashboard.trendHighRisk': '{n} tài khoản High',
+    'dashboard.trendEngagement': 'Ước lượng từ dữ liệu nút',
+    'dashboard.recPriority1': 'Ưu tiên 1',
+    'dashboard.recPriority2': 'Ưu tiên 2',
+    'dashboard.recPriority3': 'Ưu tiên 3',
+    'dashboard.recPriority4': 'Ưu tiên 4',
     'dashboard.guide': 'Hướng dẫn',
     'dashboard.report': 'Báo cáo',
     'dashboard.export': 'Xuất dữ liệu',
@@ -213,6 +233,26 @@ const I18N = {
     'nav.risks': 'Risk hotspots',
     'nav.reports': 'Reports',
     'dashboard.institution': 'Thesis · Social network simulation',
+    'dashboard.institutionFooter': 'Military Technical College — IT Faculty',
+    'dashboard.dataInfoTitle': 'Dataset info',
+    'dashboard.sideNodes': 'Accounts (nodes):',
+    'dashboard.sideEdges': 'Relationships (edges):',
+    'dashboard.sideTypes': 'Interaction types:',
+    'dashboard.sideDate': 'Data date:',
+    'dashboard.topNodesFull': 'Top 10 nodes (by risk score)',
+    'dashboard.profileTitleFull': 'Selected account',
+    'dashboard.profileRoleLbl': 'Role:',
+    'dashboard.profileDescLbl': 'Notes:',
+    'dashboard.clusterCountLabel': 'Clusters:',
+    'dashboard.labelsOff': 'Hide labels',
+    'dashboard.filterAll': 'All',
+    'dashboard.trendDensity': 'Network density {d}%',
+    'dashboard.trendHighRisk': '{n} High-risk accounts',
+    'dashboard.trendEngagement': 'Estimated from node data',
+    'dashboard.recPriority1': 'Priority 1',
+    'dashboard.recPriority2': 'Priority 2',
+    'dashboard.recPriority3': 'Priority 3',
+    'dashboard.recPriority4': 'Priority 4',
     'dashboard.guide': 'Guide',
     'dashboard.report': 'Report',
     'dashboard.export': 'Export',
@@ -531,6 +571,51 @@ async function fetchJson(path) {
   return data;
 }
 
+function formatDisplayDate(raw) {
+  if (!raw) return '—';
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return s;
+}
+
+function estimateEngagement(data, nodesList, edges) {
+  let sum = 0;
+  for (const node of nodesList) {
+    sum += (Number(node.shares) || 0) + (Number(node.comments) || 0);
+  }
+  if (sum > 0) return sum;
+  const n = Number(data.nodes) || nodesList.length || 0;
+  const e = Number(edges) || Number(data.edges) || 0;
+  if (n <= 0) return 0;
+  return Math.round(e * 1.6 + n * 2);
+}
+
+function updateStatTrends(data, n, e, highRisk, engagement) {
+  const dict = I18N[getLang()] || I18N.vi;
+  const ready = data.ready !== false && n > 0;
+  const setTrend = (id, text, negative) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = ready ? text : '—';
+    el.classList.toggle('negative', !!negative);
+    el.classList.toggle('muted', !negative);
+  };
+  const density = n > 1 ? ((2 * e) / (n * (n - 1))) * 100 : 0;
+  setTrend(
+    'stat-users-trend',
+    (dict['dashboard.trendDensity'] || 'Mật độ {d}%').replace('{d}', density.toFixed(2)),
+    false
+  );
+  setTrend('stat-edges-trend', dict['dashboard.metricFootnote'] || 'Ước lượng từ mạng', false);
+  setTrend('stat-interactions-trend', dict['dashboard.trendEngagement'] || '—', false);
+  setTrend(
+    'stat-high-risk-trend',
+    (dict['dashboard.trendHighRisk'] || '{n} High').replace('{n}', formatNumber(highRisk)),
+    highRisk > 0
+  );
+}
+
 function applySummary(data) {
   lastSummaryPayload = data;
   const n = Number(data.nodes) || 0;
@@ -546,36 +631,46 @@ function applySummary(data) {
   const highRisk =
     Number(data.high_risk_accounts) ||
     nodesList.filter((x) => String(x.risk) === 'High').length;
-  const kpiRow = document.getElementById('dashKpiRow');
-  if (kpiRow) {
-    kpiRow.classList.toggle('dash-kpi-row--disabled', !ready);
-  }
+  const engagement = estimateEngagement(data, nodesList, e);
 
-  const setKpi = (id, value, empty) => {
+  const setStat = (id, value) => {
     const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = ready && !empty ? value : '—';
-    el.closest('.dash-kpi')?.classList.toggle('dash-kpi--empty', !ready || empty);
+    if (el) el.textContent = ready ? value : '—';
   };
 
-  setKpi('stat-users', formatNumber(n), n === 0);
-  setKpi('stat-edges', formatNumber(e), e === 0);
-  setKpi('stat-high-risk', formatNumber(highRisk), false);
+  setStat('stat-users', formatNumber(n));
+  setStat('stat-edges', formatNumber(e));
+  setStat('stat-interactions', formatNumber(engagement));
+  setStat('stat-high-risk', formatNumber(highRisk));
 
-  const riskCard = document.getElementById('statHighRiskCard');
-  if (riskCard) {
-    riskCard.classList.toggle('dash-kpi--alert', ready && highRisk > 0);
-  }
+  setText('sideStatNodes', ready ? formatNumber(n) : '—');
+  setText('sideStatEdges', ready ? formatNumber(e) : '—');
+  setText('sideStatTypes', ready ? '3' : '—');
+  setText('sideStatDate', ready ? formatDisplayDate(data.data_date) : '—');
 
-  setText('footerTimestamp', data.timestamp || '—');
+  const readyBadge = document.getElementById('dataReadyBadge');
+  if (readyBadge) readyBadge.hidden = !ready;
+
+  updateStatTrends(data, n, e, highRisk, engagement);
+
+  const ts = data.timestamp || '—';
+  setText('footerTimestamp', ts);
 }
 
 function riskScoreCellClass(score) {
   const s = Number(score) || 0;
-  if (s >= 85) return 'risk-cell risk-cell--high';
-  if (s >= 65) return 'risk-cell risk-cell--med';
-  if (s >= 40) return 'risk-cell risk-cell--low';
-  return 'risk-cell risk-cell--unknown';
+  if (s >= 85) return 'high';
+  if (s >= 65) return 'medium';
+  if (s >= 40) return 'low';
+  return 'unknown';
+}
+
+function accountBadgeClass(risk) {
+  const r = String(risk || '');
+  if (r === 'High') return 'high';
+  if (r === 'Medium') return 'medium';
+  if (r === 'Low') return 'low';
+  return 'muted';
 }
 
 const RISK_WEIGHTS_KEY = 'dashRiskWeights';
@@ -729,14 +824,24 @@ function patchNodeRiskFields(node, weights) {
   return patched;
 }
 
+function enrichTopNodesWithMeta(top) {
+  const byId = new Map((graphData?.nodes_data || []).map((n) => [n.id, n]));
+  return top.map((t) => {
+    const full = byId.get(t.id);
+    if (!full) return t;
+    return { ...full, ...t, role: t.role || full.role, name: t.name || full.name };
+  });
+}
+
 function syncTopNodesFromGraph() {
   if (!graphData) return;
-  const top =
+  let top =
     graphData.top_nodes?.length > 0
       ? graphData.top_nodes
       : [...(graphData.ranking_nodes || [])]
           .sort((a, b) => (b.risk_score || 0) - (a.risk_score || 0))
           .slice(0, TOP_NODES_LIMIT);
+  top = enrichTopNodesWithMeta(top);
   renderTopNodes(top);
   drawGraph();
 }
@@ -819,13 +924,18 @@ function renderTopNodes(topNodes) {
   tbody.innerHTML = '';
 
   topNodes.slice(0, TOP_NODES_LIMIT).forEach((node, index) => {
+    const score = inferRiskScore(node);
+    const scoreDisplay = (score / 100).toFixed(3);
+    const riskCls = riskScoreCellClass(score);
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${index + 1}</td>
       <td class="td-account">${node.name}</td>
-      <td>${Number(node.betweenness).toFixed(3)}</td>
+      <td>${node.role || '—'}</td>
       <td>${displayDegreeMetric(node)}</td>
+      <td>${Number(node.betweenness).toFixed(3)}</td>
       <td>${Number(node.eigenvector).toFixed(3)}</td>
+      <td><span class="risk-score ${riskCls}">${scoreDisplay}</span></td>
     `;
     tbody.appendChild(tr);
     tr.addEventListener('click', () => {
@@ -834,20 +944,31 @@ function renderTopNodes(topNodes) {
   });
 }
 
+const COMMUNITY_DOT_FALLBACK = ['red', 'cyan', 'orange', 'green', 'purple'];
+
 function renderClusters(clusters) {
   const list = document.getElementById('clustersList');
   if (!list) return;
   list.innerHTML = '';
-  const fmt =
-    (I18N[getLang()] || I18N.vi)['dashboard.clusterCountFmt'] || '{n} tài khoản';
-  clusters.forEach((cluster) => {
-    const li = document.createElement('li');
-    li.className = 'cluster-item';
-    li.innerHTML = `
-      <div class="cluster-label"><span class="cluster-chip" style="background:${cluster.color}"></span>${cluster.name}</div>
-      <div>${fmt.replace('{n}', formatNumber(cluster.count))}</div>
-    `;
-    list.appendChild(li);
+  const lang = getLang();
+  const unit =
+    lang === 'en' ? 'accounts' : 'tài khoản';
+  (clusters || []).forEach((cluster, index) => {
+    const row = document.createElement('div');
+    row.className = 'community-item';
+    const dot = document.createElement('span');
+    dot.className = `community-dot ${COMMUNITY_DOT_FALLBACK[index % COMMUNITY_DOT_FALLBACK.length]}`;
+    dot.style.background = cluster.color || undefined;
+    const label = document.createElement('span');
+    label.className = 'community-label';
+    label.textContent = cluster.name;
+    const count = document.createElement('span');
+    count.className = 'community-count';
+    count.textContent = `${formatNumber(cluster.count)} ${unit}`;
+    row.appendChild(dot);
+    row.appendChild(label);
+    row.appendChild(count);
+    list.appendChild(row);
   });
 }
 
@@ -883,43 +1004,46 @@ function riskPillLabel(risk) {
   return risk || '—';
 }
 
+function profileDescFromNode(node) {
+  const lang = getLang();
+  const cluster = node.cluster ? String(node.cluster) : '';
+  if (lang === 'en') {
+    return cluster
+      ? `Member of ${cluster}; centrality-driven influence in the network.`
+      : 'Select a node on the graph to inspect metrics.';
+  }
+  return cluster
+    ? `Thuộc ${cluster}; mức độ ảnh hưởng theo chỉ số trung tâm trên mạng.`
+    : 'Chọn một nút trên đồ thị để xem chỉ số chi tiết.';
+}
+
 function renderProfile(node) {
   const nameEl = document.getElementById('selectedName');
   const roleLine = document.getElementById('selectedRoleLine');
-  const riskBadge = document.getElementById('selectedRiskBadge');
+  const descLine = document.getElementById('selectedDescLine');
+  const riskBadge = document.getElementById('selectedAccountBadge');
 
   if (!node) {
     if (nameEl) nameEl.textContent = '—';
     if (roleLine) roleLine.textContent = '—';
+    if (descLine) descLine.textContent = '—';
     if (riskBadge) {
       riskBadge.textContent = '—';
-      riskBadge.className = 'risk-pill risk-pill--muted';
-    }
-    const cb = document.getElementById('selectedClusterBadge');
-    if (cb) {
-      cb.textContent = '—';
-      cb.style.borderLeft = '';
+      riskBadge.className = 'account-badge muted';
     }
     const z = (id) => document.getElementById(id);
     if (z('selectedFollowers')) z('selectedFollowers').textContent = '0';
     if (z('selectedPosts')) z('selectedPosts').textContent = '0';
     if (z('selectedShares')) z('selectedShares').textContent = '0';
     if (z('selectedComments')) z('selectedComments').textContent = '0';
-    if (roleLine) roleLine.textContent = '—';
     return;
   }
   if (nameEl) nameEl.textContent = node.name;
   if (roleLine) roleLine.textContent = node.role || '—';
+  if (descLine) descLine.textContent = profileDescFromNode(node);
   if (riskBadge) {
-    const rs = node.risk_score != null ? Number(node.risk_score) : null;
-    riskBadge.textContent =
-      rs != null ? `${riskPillLabel(node.risk)} · ${formatNumber(Math.round(rs))}` : riskPillLabel(node.risk);
-    riskBadge.className = riskPillClass(node.risk);
-  }
-  const cb = document.getElementById('selectedClusterBadge');
-  if (cb) {
-    cb.textContent = node.cluster || '—';
-    cb.style.borderLeft = `4px solid ${node.cluster_color || '#9ca3af'}`;
+    riskBadge.textContent = riskPillLabel(node.risk);
+    riskBadge.className = `account-badge ${accountBadgeClass(node.risk)}`;
   }
   const setNum = (id, val) => {
     const el = document.getElementById(id);
@@ -929,6 +1053,129 @@ function renderProfile(node) {
   setNum('selectedPosts', node.posts);
   setNum('selectedShares', node.shares);
   setNum('selectedComments', node.comments);
+}
+
+function renderRecommendations(apiData) {
+  const list = document.getElementById('recommendationList');
+  if (!list) return;
+  const dict = I18N[getLang()] || I18N.vi;
+  const items = [];
+
+  const top = graphData?.top_nodes?.[0];
+  if (top) {
+    items.push({
+      icon: 'green',
+      title:
+        getLang() === 'en'
+          ? `Prioritize monitoring ${top.name}`
+          : `Ưu tiên giám sát ${top.name}`,
+      desc:
+        getLang() === 'en'
+          ? `${top.role || 'Key node'} — highest risk score in the network.`
+          : `${top.role || 'Nút trọng yếu'} — điểm nguy cơ cao nhất trên mạng.`,
+      priority: 'p1',
+      priorityLabel: dict['dashboard.recPriority1'] || 'Ưu tiên 1',
+    });
+  }
+
+  const clusters = graphData?.clusters || [];
+  if (clusters[0]) {
+    items.push({
+      icon: 'red',
+      title:
+        getLang() === 'en'
+          ? `Intervene in ${clusters[0].name}`
+          : `Tác động vào ${clusters[0].name}`,
+      desc:
+        getLang() === 'en'
+          ? `Largest detected community (${formatNumber(clusters[0].count)} accounts).`
+          : `Cụm lớn nhất (${formatNumber(clusters[0].count)} tài khoản).`,
+      priority: 'p2',
+      priorityLabel: dict['dashboard.recPriority2'] || 'Ưu tiên 2',
+    });
+  }
+
+  const winner = apiData?.winner;
+  if (winner?.strategy) {
+    items.push({
+      icon: 'blue',
+      title:
+        getLang() === 'en'
+          ? `SIR strategy: ${winner.strategy}`
+          : `Chiến lược SIR: ${winner.strategy}`,
+      desc:
+        getLang() === 'en'
+          ? `Peak I ${winner.peak_infected ?? '—'} · run dynamic immunization.`
+          : `Đỉnh I ${winner.peak_infected ?? '—'} · chạy miễn nhiễm động.`,
+      priority: 'p3',
+      priorityLabel: dict['dashboard.recPriority3'] || 'Ưu tiên 3',
+    });
+  } else if ((graphData?.top_nodes || []).length > 1) {
+    const a = graphData.top_nodes[1];
+    const b = graphData.top_nodes[2];
+    if (a && b) {
+      items.push({
+        icon: 'blue',
+        title:
+          getLang() === 'en'
+            ? `Watch ${a.name} and ${b.name}`
+            : `Theo dõi ${a.name} và ${b.name}`,
+        desc: dict['dashboard.recR3'] || 'High spread potential.',
+        priority: 'p3',
+        priorityLabel: dict['dashboard.recPriority3'] || 'Ưu tiên 3',
+      });
+    }
+  }
+
+  items.push({
+    icon: 'purple',
+    title: dict['dashboard.recR4'] || 'Rà soát cụm lạ',
+    desc:
+      getLang() === 'en'
+        ? 'Review bridge nodes between communities.'
+        : 'Rà soát nút cầu nối giữa các cụm cộng đồng.',
+    priority: 'p4',
+    priorityLabel: dict['dashboard.recPriority4'] || 'Ưu tiên 4',
+  });
+
+  const iconSvg = {
+    green:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+    red:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>',
+    blue:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>',
+    purple:
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+  };
+
+  list.innerHTML = '';
+  items.slice(0, 4).forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'recommendation-item';
+    row.innerHTML = `
+      <div class="recommendation-icon ${item.icon}">${iconSvg[item.icon] || ''}</div>
+      <div class="recommendation-content">
+        <div class="recommendation-title">${item.title}</div>
+        <div class="recommendation-desc">${item.desc}</div>
+      </div>
+      <span class="recommendation-priority ${item.priority}">${item.priorityLabel}</span>
+    `;
+    list.appendChild(row);
+  });
+}
+
+async function loadRecommendations() {
+  try {
+    const folder = graphData?.output_folder;
+    const url = folder
+      ? `/api/intervention-recommendations?output_dir=${encodeURIComponent(folder)}`
+      : '/api/intervention-recommendations';
+    const data = await fetchJson(url);
+    renderRecommendations(data);
+  } catch {
+    renderRecommendations(null);
+  }
 }
 
 function setSelectedNode(nodeId) {
@@ -1037,6 +1284,8 @@ async function loadDashboard() {
     graphData = graph;
     if (graph.ready === false && graph.hint) {
       toast(graph.hint, 'info', 4500);
+    } else if (graph.nodes_data?.length || graph.ranking_nodes?.length) {
+      applyRiskWeights(loadRiskWeights());
     }
     selectedNodeId =
       graph.top_nodes?.[0]?.id ?? graph.nodes_data?.[0]?.id ?? null;
@@ -1052,6 +1301,7 @@ async function loadDashboard() {
         ? graphData.nodes_data?.find((item) => item.id === selectedNodeId)
         : null
     );
+    await loadRecommendations();
   } catch (error) {
     showError('Không thể tải dữ liệu từ server: ' + error.message);
   } finally {
@@ -1214,10 +1464,39 @@ function init() {
   const menuOpenData = document.getElementById('menuOpenData');
   if (menuOpenData) menuOpenData.addEventListener('click', openDataGenModal);
 
+  document.getElementById('btnGuide')?.addEventListener('click', () => {
+    toast(I18N[getLang()].toast_guide, 'info', 5000);
+  });
+  document.getElementById('btnExport')?.addEventListener('click', () => {
+    toast(I18N[getLang()].toast_export, 'info', 5000);
+  });
+  document.getElementById('btnReport')?.addEventListener('click', () => {
+    toast(I18N[getLang()].toast_report, 'info', 5000);
+  });
+
+  document.querySelectorAll('.nav-scroll').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const sel = btn.getAttribute('data-scroll');
+      const el = sel ? document.querySelector(sel) : null;
+      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  });
+
   loadDashboard();
 
   window.addEventListener('app:langchange', () => {
-    if (graphData) updateGraphVizCaption(graphData);
+    if (!graphData) return;
+    updateGraphVizCaption(graphData);
+    renderClusters(graphData.clusters || []);
+    const cc = document.getElementById('clusterCountNum');
+    if (cc) cc.textContent = String((graphData.clusters || []).length);
+    applySummary(graphData);
+    if (selectedNodeId != null) {
+      const node = graphData.nodes_data?.find((item) => item.id === selectedNodeId);
+      if (node) renderProfile(node);
+    }
+    syncTopNodesFromGraph();
+    loadRecommendations();
   });
 }
 
