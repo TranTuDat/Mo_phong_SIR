@@ -18,8 +18,10 @@ import random
 
 from .deploy_env import max_users_limit, on_render_deploy, skip_heavy_viz, use_fast_graph_algorithms
 from .Tao_nguoi_dung_va_do_thi import SocialNetworkGenerator, OUTPUT_ROOT
-from .sir_models import PureSIRSimulation, SIRDynamicImmunization
+from .sir_models import PureSIRSimulation, SIRDynamicImmunization, epidemic_final_day_from_history
 from .sir_sim_paths import (
+    clear_dataset_sir_results,
+    clear_orphan_legacy_sir_dirs,
     find_dynamic_sir_history_csv,
     find_pure_sir_history_csv,
     list_saved_dynamic_sir_runs,
@@ -245,14 +247,84 @@ def create_graph(users: pd.DataFrame, relationships: pd.DataFrame) -> nx.Graph:
     return graph
 
 
+def _intervention_rank_key(run: dict) -> tuple:
+    """
+    Thứ tự ưu tiên (nhỏ hơn = tốt hơn):
+    1) Kết thúc dịch sớm (final_day) — ngăn dịch kéo dài
+    2) Đỉnh dịch thấp (peak_infected)
+    3) Ngày đỉnh sớm (peak_day)
+    """
+    big = 10**9
+    return (
+        int(run['final_day']) if run.get('final_day') is not None else big,
+        int(run['peak_infected']) if run.get('peak_infected') is not None else big,
+        int(run['peak_day']) if run.get('peak_day') is not None else big,
+    )
+
+
 def sir_metrics_from_history_df(df: pd.DataFrame, n_nodes: int) -> tuple:
-    """(peak_day, peak_infected, final_day) — ưu tiên đỉnh I thấp và kết thúc sớm khi so sánh."""
+    """(peak_day, peak_infected, final_day). final_day = ngày đầu tiên I=0 (sau ngày 0)."""
     peak_idx = df['I'].idxmax()
     peak_day = int(df.loc[peak_idx, 'day'])
     peak_I = int(df['I'].max())
-    done = df[df['R'] == n_nodes]
-    final_day = int(done['day'].iloc[0]) if len(done) else int(df['day'].iloc[-1])
+    final_day = epidemic_final_day_from_history(df)
     return peak_day, peak_I, final_day
+
+
+def _intervention_run_row(
+    folder: Path,
+    id_to_name: dict,
+    n_nodes: int,
+    strategy: str,
+    intervention_day: int,
+    top_k: int,
+) -> dict:
+    """Một kịch bản can thiệp (strategy + ngày + top_k)."""
+    hist_path = find_dynamic_sir_history_csv(folder, strategy, intervention_day, top_k)
+    node_ids = (
+        read_immunized_node_ids(folder, strategy, intervention_day, top_k)
+        if hist_path is not None
+        else []
+    )
+    if hist_path is None:
+        return {
+            'strategy': strategy,
+            'intervention_day': intervention_day,
+            'top_k': top_k,
+            'available': False,
+            'peak_day': None,
+            'peak_infected': None,
+            'final_day': None,
+            'node_ids': node_ids,
+            'intervened_nodes': [],
+        }
+    dfp = pd.read_csv(hist_path)
+    peak_day, peak_I, final_day = sir_metrics_from_history_df(dfp, n_nodes)
+    detail = [{'id': nid, 'name': id_to_name.get(nid, str(nid))} for nid in node_ids]
+    out_day = int(intervention_day)
+    out_k = int(top_k)
+    mj_path = hist_path.parent / 'immunized_nodes.json'
+    if mj_path.is_file():
+        try:
+            with open(mj_path, encoding='utf-8') as f:
+                mj = json.load(f)
+            if mj.get('intervention_day') is not None:
+                out_day = int(mj['intervention_day'])
+            if mj.get('top_k') is not None:
+                out_k = int(mj['top_k'])
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return {
+        'strategy': strategy,
+        'intervention_day': out_day,
+        'top_k': out_k,
+        'available': True,
+        'peak_day': int(peak_day),
+        'peak_infected': int(peak_I),
+        'final_day': int(final_day),
+        'node_ids': node_ids,
+        'intervened_nodes': detail,
+    }
 
 
 def build_intervention_recommendations(folder: Path) -> dict:
@@ -277,67 +349,80 @@ def build_intervention_recommendations(folder: Path) -> dict:
             'final_day': pd_fd,
         }
 
-    rows = []
+    saved = list_saved_dynamic_sir_runs(folder)
+    runs: list[dict] = []
+    for item in saved:
+        runs.append(
+            _intervention_run_row(
+                folder,
+                id_to_name,
+                n_nodes,
+                item['strategy'],
+                int(item['intervention_day']),
+                int(item['top_k']),
+            )
+        )
 
+    seen_strategies = {r['strategy'] for r in runs if r['available']}
     for strategy in DYNAMIC_STRATEGIES:
-        hist_path = find_dynamic_sir_history_csv(folder, strategy, 1)
-        node_ids = read_immunized_node_ids(folder, strategy, 1) if hist_path is not None else []
+        if strategy not in seen_strategies:
+            runs.append(
+                {
+                    'strategy': strategy,
+                    'intervention_day': None,
+                    'top_k': None,
+                    'available': False,
+                    'peak_day': None,
+                    'peak_infected': None,
+                    'final_day': None,
+                    'node_ids': [],
+                    'intervened_nodes': [],
+                }
+            )
 
-        if hist_path is None:
-            rows.append({
-                'strategy': strategy,
-                'available': False,
-                'peak_day': None,
-                'peak_infected': None,
-                'final_day': None,
-                'node_ids': node_ids,
-                'intervened_nodes': [],
-            })
-            continue
-
-        dfp = pd.read_csv(hist_path)
-        peak_day, peak_I, final_day = sir_metrics_from_history_df(dfp, n_nodes)
-        detail = [{'id': nid, 'name': id_to_name.get(nid, str(nid))} for nid in node_ids]
-        rows.append({
-            'strategy': strategy,
-            'available': True,
-            'peak_day': peak_day,
-            'peak_infected': peak_I,
-            'final_day': final_day,
-            'node_ids': node_ids,
-            'intervened_nodes': detail,
-        })
-
-    available = [r for r in rows if r['available']]
-    rationale_vi = (
-        'Xếp hạng theo thứ tự từ điển: (1) đỉnh số ca nhiễm đồng thời (I) càng thấp càng tốt; '
-        '(2) nếu bằng nhau thì ngày kết thúc dịch (R = toàn mạng) càng sớm càng tốt.'
+    available_runs = [r for r in runs if r['available']]
+    available_runs.sort(key=_intervention_rank_key)
+    runs.sort(
+        key=lambda r: (
+            not r['available'],
+            _intervention_rank_key(r) if r['available'] else (10**9, 10**9, 10**9),
+            r.get('strategy') or '',
+        )
     )
-    rationale_en = (
-        'Lexicographic ranking: (1) lower peak concurrent infected (I) is better; '
-        '(2) if tied, earlier full-recovery day (R equals network size) is better.'
-    )
+
+    strategy_summary: list[dict] = []
+    for strategy in DYNAMIC_STRATEGIES:
+        pool = [r for r in runs if r['strategy'] == strategy and r['available']]
+        if pool:
+            best = min(pool, key=_intervention_rank_key)
+            strategy_summary.append({**best, 'is_best_for_strategy': True})
+        else:
+            strategy_summary.append(
+                {
+                    'strategy': strategy,
+                    'intervention_day': None,
+                    'top_k': None,
+                    'available': False,
+                    'peak_day': None,
+                    'peak_infected': None,
+                    'final_day': None,
+                    'node_ids': [],
+                    'intervened_nodes': [],
+                    'is_best_for_strategy': False,
+                }
+            )
 
     winner = None
-    if available:
-        available.sort(key=lambda r: (r['peak_infected'], r['final_day']))
-        w = available[0]
-        winner = {
-            'strategy': w['strategy'],
-            'peak_day': w['peak_day'],
-            'peak_infected': w['peak_infected'],
-            'final_day': w['final_day'],
-            'node_ids': w['node_ids'],
-            'intervened_nodes': w['intervened_nodes'],
-        }
+    if available_runs:
+        w = available_runs[0]
+        winner = dict(w)
 
     return {
         'output_folder': folder.name,
         'pure_sir': pure_metrics,
-        'strategies': rows,
+        'runs': runs,
+        'strategies': strategy_summary,
         'winner': winner,
-        'rationale_vi': rationale_vi,
-        'rationale_en': rationale_en,
     }
 
 
@@ -2368,7 +2453,9 @@ def api_sir_results():
             if strat_q not in DYNAMIC_STRATEGIES:
                 strat_q = 'betweenness'
             intervention_day = int(request.args.get('intervention_day', 1))
-            hist_path = find_dynamic_sir_history_csv(folder, strat_q, intervention_day)
+            top_k_arg = request.args.get('top_k')
+            top_k = int(top_k_arg) if top_k_arg not in (None, '') else None
+            hist_path = find_dynamic_sir_history_csv(folder, strat_q, intervention_day, top_k)
         else:
             strat_q = None
             intervention_day = None
@@ -2437,17 +2524,11 @@ def api_sir_saved_runs():
 
 def empty_intervention_recommendations() -> dict:
     """Cùng cấu trúc với build_intervention_recommendations khi chưa có thư mục output."""
-    rationale_vi = (
-        'Xếp hạng theo thứ tự từ điển: (1) đỉnh số ca nhiễm đồng thời (I) càng thấp càng tốt; '
-        '(2) nếu bằng nhau thì ngày kết thúc dịch (R = toàn mạng) càng sớm càng tốt.'
-    )
-    rationale_en = (
-        'Lexicographic ranking: (1) lower peak concurrent infected (I) is better; '
-        '(2) if tied, earlier full-recovery day (R equals network size) is better.'
-    )
     rows = [
         {
             'strategy': s,
+            'intervention_day': None,
+            'top_k': None,
             'available': False,
             'peak_day': None,
             'peak_infected': None,
@@ -2460,10 +2541,9 @@ def empty_intervention_recommendations() -> dict:
     return {
         'output_folder': None,
         'pure_sir': None,
+        'runs': [],
         'strategies': rows,
         'winner': None,
-        'rationale_vi': rationale_vi,
-        'rationale_en': rationale_en,
         'hint': 'Chưa có thư mục output. Về tổng quan và bấm «Tạo dữ liệu» trước.',
     }
 
@@ -2487,39 +2567,73 @@ def api_intervention_recommendations():
         return jsonify({'error': str(e)}), 500
 
 
+def _list_output_dataset_dirs(include_uploaded: bool = True) -> list[Path]:
+    """Liệt kê thư mục output_* / output_uploaded_* (mới nhất trước), không trùng đường dẫn."""
+    prefixes = ['output_']
+    if include_uploaded:
+        prefixes.append('output_uploaded_')
+    seen: set[str] = set()
+    candidates: list[Path] = []
+    for base in (OUTPUTS_DIR, OUTPUT_ROOT, BASE_DIR):
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        if not base.is_dir():
+            continue
+        for p in base.iterdir():
+            if not p.is_dir():
+                continue
+            if not any(p.name.startswith(pref) for pref in prefixes):
+                continue
+            key = str(p.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(p)
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates
+
+
 @app.route('/api/cleanup-outputs', methods=['POST'])
 def api_cleanup_outputs():
     try:
         payload = request.get_json() or {}
-        keep_latest = int(payload.get('keep_latest', 3))
+        delete_all = bool(payload.get('delete_all', False))
+        keep_latest = 0 if delete_all else int(payload.get('keep_latest', 1))
+        if keep_latest < 0:
+            keep_latest = 0
         include_uploaded = bool(payload.get('include_uploaded', True))
 
-        prefixes = ['output_']
-        if include_uploaded:
-            prefixes.append('output_uploaded_')
+        clear_simulations = bool(payload.get('clear_simulations', True))
 
-        OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-        candidates: list[Path] = []
-        for base in (OUTPUTS_DIR, BASE_DIR):
-            for p in base.iterdir():
-                if not p.is_dir():
-                    continue
-                if any(p.name.startswith(pref) for pref in prefixes):
-                    candidates.append(p)
-
-        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        candidates = _list_output_dataset_dirs(include_uploaded=include_uploaded)
         to_remove = candidates[keep_latest:]
-        removed = 0
+        kept = candidates[:keep_latest]
+        removed_names: list[str] = []
         for p in to_remove:
             shutil.rmtree(p, ignore_errors=True)
-            removed += 1
+            removed_names.append(p.name)
+
+        cleared_sim_roots = 0
+        if clear_simulations:
+            for p in kept:
+                cleared_sim_roots += clear_dataset_sir_results(p)
+            for base in (OUTPUTS_DIR, OUTPUT_ROOT, BASE_DIR):
+                cleared_sim_roots += clear_orphan_legacy_sir_dirs(base)
 
         global _cached_graph, _cached_payload_by_viz, _cached_output
         _cached_graph = None
         _cached_payload_by_viz = {}
         _cached_output = None
 
-        return jsonify({'removed_count': removed, 'kept': min(len(candidates), keep_latest)})
+        return jsonify({
+            'removed_count': len(removed_names),
+            'kept': min(len(candidates), keep_latest),
+            'removed_dirs': removed_names,
+            'cleared_simulation_roots': cleared_sim_roots,
+            'delete_all': delete_all or keep_latest == 0,
+        })
     except Exception as e:
         logger.error(f'Error in api_cleanup_outputs: {e}')
         return jsonify({'error': str(e)}), 500

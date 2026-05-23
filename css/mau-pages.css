@@ -2,8 +2,9 @@
 .mau-subpage-content {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding-bottom: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* === Tiêu đề trang === */
@@ -126,15 +127,18 @@ body[data-mau-page="simulation"] .content {
 }
 
 .sim-controls-panel {
-  align-self: start;
-  max-height: calc(100vh - 118px);
+  align-self: stretch;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .sim-controls-panel .card-body {
   padding: 14px;
+  overflow-x: hidden;
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .model-tabs {
@@ -225,7 +229,6 @@ body[data-mau-page="simulation"] .content {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  min-height: calc(100vh - 118px);
 }
 
 .sim-results-header {
@@ -322,6 +325,11 @@ body[data-mau-page="simulation"] .content {
   border-bottom-color: #2563eb;
 }
 
+.result-tab-btn.sir-tab-disabled {
+  opacity: 0.55;
+  cursor: help;
+}
+
 .sim-results-body {
   flex: 1;
   display: flex;
@@ -336,8 +344,13 @@ body[data-mau-page="simulation"] .content {
   flex: 1;
   flex-direction: column;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-top: 12px;
+}
+
+#sir-chart-tab.result-tab-content {
+  overflow: hidden;
 }
 
 .result-tab-content.active {
@@ -348,12 +361,13 @@ body[data-mau-page="simulation"] .content {
   position: relative;
   width: 100%;
   flex: 1;
-  min-height: 280px;
+  min-height: 0;
 }
 
 .sim-chart-wrap.sir-chart-tall {
-  height: clamp(400px, 62vh, 780px);
-  min-height: 340px;
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .sir-chart-placeholder {
@@ -449,10 +463,36 @@ body[data-mau-page="simulation"] .content {
   font-size: 11px;
 }
 
+.sir-comparison-empty {
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6b7280;
+}
+
+.sir-comparison-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+}
+
+.sir-comparison-content .comparison-table {
+  flex: 1;
+  min-height: 0;
+}
+
 .comparison-table {
   overflow-x: auto;
-  margin-top: 12px;
-  flex-shrink: 0;
+  overflow-y: auto;
+  margin-top: 0;
+  flex-shrink: 1;
+  min-height: 0;
 }
 
 .comparison-table table {
@@ -544,17 +584,25 @@ body[data-mau-page="recommendations"] .content {
 
 .rec-main-grid {
   display: grid;
-  grid-template-columns: 1.35fr 1fr;
+  grid-template-columns: 1.4fr 1fr;
   gap: 14px;
   min-height: 0;
   flex: 1;
+  overflow: hidden;
+}
+
+.rec-tables-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
 }
 
 .rec-table-card,
 .rec-winner-card {
   display: flex;
   flex-direction: column;
-  min-height: 280px;
+  min-height: 0;
 }
 
 .rec-table-hint {
@@ -571,7 +619,6 @@ body[data-mau-page="recommendations"] .content {
 
 .rec-table-body .table-container {
   height: 100%;
-  max-height: 360px;
 }
 
 .rec-table th {
@@ -637,6 +684,9 @@ body[data-mau-page="recommendations"] .content {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .rec-winner-hero {
@@ -690,11 +740,13 @@ body[data-mau-page="recommendations"] .content {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 220px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .rec-node-list li {
@@ -742,13 +794,20 @@ body[data-mau-page="recommendations"] .content {
   padding: 14px !important;
 }
 
-.rec-rationale-text {
+.rec-cell-muted {
+  color: #9ca3af;
   font-size: 12px;
-  line-height: 1.6;
-  color: #4b5563;
-  margin: 0;
-  padding-left: 12px;
-  border-left: 3px solid #3b82f6;
+  font-style: italic;
+}
+
+.rec-delta-good {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.rec-delta-bad {
+  color: #dc2626;
+  font-weight: 600;
 }
 
 @media (max-width: 1100px) {
@@ -772,12 +831,22 @@ body[data-mau-page="recommendations"] .content {
     grid-template-columns: 1fr;
   }
 
+  .rec-tables-stack {
+    order: 1;
+  }
+
+  .rec-winner-card {
+    order: 2;
+  }
+
   .rec-kpi-row {
     grid-template-columns: repeat(2, 1fr);
   }
 
   .sim-chart-wrap.sir-chart-tall {
-    height: clamp(320px, 50vh, 520px);
+    flex: 1;
+    min-height: 0;
+    height: auto;
   }
 }
 

@@ -50,6 +50,7 @@ def page_shell(active: str, title: str, body_inner: str, extra_head: str, script
   <link rel="stylesheet" href="/css/dashboard-mau.css" />
   <link rel="stylesheet" href="/css/mau-typography.css" />
   <link rel="stylesheet" href="/css/mau-pages.css" />
+  <link rel="stylesheet" href="/css/mau-viewport.css" />
 {extra_head}
 </head>
 <body data-mau-page="{active}">
@@ -225,17 +226,33 @@ REC_BODY = """
           </div>
         </div>
         <div class="rec-main-grid">
-          <div class="card rec-table-card">
-            <div class="card-header">
-              <span class="card-title">So sánh chiến lược can thiệp</span>
-              <span class="rec-table-hint">Hàng tô xanh = đề xuất</span>
+          <div class="rec-tables-stack">
+            <div class="card rec-table-card">
+              <div class="card-header">
+                <span class="card-title">Theo chỉ số trung tâm</span>
+                <span class="rec-table-hint">Mỗi loại: kịch bản tốt nhất</span>
+              </div>
+              <div class="card-body rec-table-body">
+                <div class="table-container">
+                  <table class="rec-table">
+                    <thead><tr><th>Chiến lược</th><th>Ngày CT</th><th>Top-k</th><th>Đỉnh I</th><th>Ngày đỉnh</th><th>Kết thúc</th><th>Δ I</th></tr></thead>
+                    <tbody id="recStrategiesBody"></tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-            <div class="card-body rec-table-body">
-              <div class="table-container">
-                <table class="rec-table">
-                  <thead><tr><th>Chiến lược</th><th>Đỉnh I</th><th>Ngày đỉnh</th><th>Ngày kết thúc</th><th>Trạng thái</th></tr></thead>
-                  <tbody id="recStrategiesBody"></tbody>
-                </table>
+            <div class="card rec-table-card rec-runs-card">
+              <div class="card-header">
+                <span class="card-title">Các mẫu can thiệp đã mô phỏng</span>
+                <span class="rec-table-hint">Mọi lần chạy — hàng xanh = đề xuất chung</span>
+              </div>
+              <div class="card-body rec-table-body">
+                <div class="table-container">
+                  <table class="rec-table">
+                    <thead><tr><th>Chiến lược</th><th>Ngày CT</th><th>Top-k</th><th>Đỉnh I</th><th>Ngày đỉnh</th><th>Kết thúc</th><th>Δ I</th><th></th></tr></thead>
+                    <tbody id="recRunsBody"></tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -254,10 +271,6 @@ REC_BODY = """
               <ul id="recWinnerNodes" class="rec-node-list"></ul>
             </div>
           </div>
-        </div>
-        <div class="card rec-rationale-card">
-          <div class="card-header"><span class="card-title">Tiêu chí xếp hạng khoa học</span></div>
-          <div class="card-body"><p id="recRationale" class="rec-rationale-text"></p></div>
         </div>
 """
 

@@ -115,6 +115,44 @@
     else runGenerator(onDataReady);
   }
 
+  async function cleanupOldOutputs(onDataReady) {
+    const ok = window.confirm(
+      'Chỉ giữ bộ dữ liệu mạng mới nhất, xóa các output cũ và xóa hết kết quả mô phỏng SIR đã lưu?'
+    );
+    if (!ok) return;
+
+    const btn = document.getElementById('btnCleanupOutputs');
+    const orig = btn?.textContent;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Đang dọn...';
+    }
+    try {
+      const result = await fetchJson('/api/cleanup-outputs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keep_latest: 1, include_uploaded: true, clear_simulations: true }),
+      });
+      const n = Number(result.removed_count) || 0;
+      const sim = Number(result.cleared_simulation_roots) || 0;
+      let msg = 'Đã dọn xong.';
+      if (n > 0) msg += ` Xóa ${n} bộ output cũ.`;
+      if (sim > 0) msg += ` Xóa ${sim} nhóm kết quả mô phỏng.`;
+      if (n === 0 && sim === 0) msg = 'Không có output hoặc mô phỏng cũ để xóa.';
+      toast(msg);
+      await refreshSideStats();
+      if (typeof onDataReady === 'function') await onDataReady();
+      if (typeof global.onSharedDataReady === 'function') await global.onSharedDataReady();
+    } catch (e) {
+      toast('Không thể dọn output cũ: ' + e.message, 5000);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    }
+  }
+
   async function refreshSideStats() {
     try {
       const data = await fetchJson('/api/graph?refresh=0');
@@ -222,6 +260,7 @@
     bindNavigation(page, onDataReady);
     bindHeader();
     bindModal(onDataReady);
+    document.getElementById('btnCleanupOutputs')?.addEventListener('click', () => cleanupOldOutputs(onDataReady));
     applyServerConfig();
     refreshSideStats();
     if (page === 'overview' && window.location.hash) {
@@ -237,6 +276,7 @@
     openModal,
     closeModal,
     refreshSideStats,
+    cleanupOldOutputs,
     ROUTES,
   };
 })(typeof window !== 'undefined' ? window : global);

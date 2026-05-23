@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="/css/dashboard-mau.css" />
   <link rel="stylesheet" href="/css/mau-typography.css" />
   <link rel="stylesheet" href="/css/mau-pages.css" />
+  <link rel="stylesheet" href="/css/mau-viewport.css" />
   <script src="/vendor/chart.min.js"></script>
 </head>
 <body data-mau-page="simulation">
@@ -84,7 +85,8 @@
       </div>
 
       <div class="sidebar-footer">
-        Trường Sĩ quan Thông tin - Khoa CNTT - TC KGM
+        <button type="button" id="btnCleanupOutputs" class="sidebar-footer-link">Dọn output cũ</button>
+        <span class="sidebar-footer-text">Trường Sĩ quan Thông tin - Khoa CNTT - TC KGM</span>
       </div>
     </aside>
     <main class="main-content">
@@ -205,8 +207,11 @@
                 </div>
               </div>
               <div id="sir-comparison-tab" class="result-tab-content">
-                <div class="sim-chart-wrap sir-chart-tall sir-chart-has-data" id="sirCmpChartWrap"><canvas id="comparisonSimChart"></canvas></div>
-                <div class="comparison-table"><table><thead><tr id="comparisonSimTableHeadRow"></tr></thead><tbody id="comparisonSimTableBody"></tbody></table></div>
+                <p id="sirComparisonEmpty" class="sir-comparison-empty" hidden></p>
+                <div id="sirComparisonContent" class="sir-comparison-content" hidden>
+                  <div class="sim-chart-wrap sir-chart-tall" id="sirCmpChartWrap"><canvas id="comparisonSimChart"></canvas></div>
+                  <div class="comparison-table"><table><thead><tr id="comparisonSimTableHeadRow"></tr></thead><tbody id="comparisonSimTableBody"></tbody></table></div>
+                </div>
               </div>
             </div>
           </div>

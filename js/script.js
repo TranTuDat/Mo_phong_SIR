@@ -1400,7 +1400,9 @@ async function runSimulate(model) {
 }
 
 async function cleanupOldOutputs() {
-  const shouldCleanup = window.confirm('Giữ lại 3 bộ dữ liệu mới nhất và xóa các output cũ?');
+  const shouldCleanup = window.confirm(
+    'Chỉ giữ bộ dữ liệu mạng mới nhất, xóa các output cũ và xóa hết kết quả mô phỏng SIR đã lưu?'
+  );
   if (!shouldCleanup) return;
 
   const btn = document.getElementById('btnCleanupOutputs');
@@ -1414,7 +1416,7 @@ async function cleanupOldOutputs() {
     const response = await fetch('/api/cleanup-outputs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ keep_latest: 3, include_uploaded: true }),
+      body: JSON.stringify({ keep_latest: 1, include_uploaded: true, clear_simulations: true }),
     });
     if (!response.ok) throw new Error(`API lỗi ${response.status}`);
     const result = await response.json();

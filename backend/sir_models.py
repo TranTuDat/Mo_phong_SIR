@@ -22,6 +22,17 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def epidemic_final_day_from_history(history: pd.DataFrame) -> int:
+    """
+    Ngày kết thúc dịch: ngày đầu tiên sau ngày 0 mà không còn nút I (hết nguồn lây).
+    Nếu đến hết chuỗi vẫn còn I, lấy ngày cuối đã ghi.
+    """
+    ended = history[(history['I'] == 0) & (history['day'] > 0)]
+    if not ended.empty:
+        return int(ended['day'].iloc[0])
+    return int(history['day'].iloc[-1])
+
+
 def _discover_dataset_dirs() -> list[Path]:
     """Các thư mục output_* / output_uploaded_* trong outputs/ và (legacy) root repo."""
     out = _REPO_ROOT / 'outputs'
@@ -217,9 +228,9 @@ class PureSIRSimulation:
                 if day % 10 == 0:
                     logger.info(f"Day {day}: S={S}, I={I}, R={R}")
 
-                # ✅ Dừng khi toàn bộ hồi phục
-                if R == n:
-                    logger.info(f"\n🎯 Mạng miễn nhiễm hoàn toàn tại ngày {day}")
+                # Dừng khi không còn ca nhiễm (hết nguồn lây)
+                if I == 0:
+                    logger.info(f"\n🎯 Dịch kết thúc tại ngày {day} (không còn nút I)")
                     break
 
             self.history = pd.DataFrame(history)
@@ -251,12 +262,7 @@ class PureSIRSimulation:
             peak_day = int(self.history.loc[peak_idx, 'day'])
             peak_infected = int(self.history['I'].max())
 
-            # Tìm ngày cuối cùng khi R = n, nếu không tìm được thì lấy ngày cuối cùng
-            recovered_all = self.history[self.history['R'] == self.graph.number_of_nodes()]
-            if not recovered_all.empty:
-                final_day = int(recovered_all['day'].iloc[0])
-            else:
-                final_day = int(self.history['day'].iloc[-1])
+            final_day = epidemic_final_day_from_history(self.history)
 
             logger.info("="*60)
             logger.info("THỐNG KÊ SIR")
@@ -477,7 +483,7 @@ class SIRDynamicImmunization:
             logger.info(f"✓ Graph: {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges\n")
 
             self.results_dir = dynamic_dataset_subdir_fs(
-                self.output_dir, self.strategy, self.intervention_day
+                self.output_dir, self.strategy, self.intervention_day, self.top_k
             )
             os.makedirs(self.results_dir, exist_ok=True)
             logger.info(f"✓ Results directory: {self.results_dir}\n")
@@ -656,11 +662,9 @@ class SIRDynamicImmunization:
                 if day % 10 == 0:
                     logger.info(f"Day {day}: S={S}, I={I}, R={R}")
 
-                # =====================
-                # DỪNG KHI 100% R
-                # =====================
-                if R == n:
-                    logger.info(f"\n🔥 Mạng miễn nhiễm hoàn toàn tại ngày {day}")
+                # Dừng khi không còn ca nhiễm (hết nguồn lây)
+                if I == 0:
+                    logger.info(f"\n🎯 Dịch kết thúc tại ngày {day} (không còn nút I)")
                     break
 
             self.history = pd.DataFrame(history)
@@ -713,18 +717,13 @@ class SIRDynamicImmunization:
             peak_idx = self.history['I'].idxmax()
             peak_day = int(self.history.loc[peak_idx, 'day'])
             peak_I = int(self.history['I'].max())
-            n = self.graph.number_of_nodes()
-            recovered_all = self.history[self.history['R'] == n]
-            if not recovered_all.empty:
-                final_day = int(recovered_all['day'].iloc[0])
-            else:
-                final_day = int(self.history['day'].iloc[-1])
+            final_day = epidemic_final_day_from_history(self.history)
 
             logger.info("\n" + "="*60)
             logger.info("📊 THỐNG KÊ")
             logger.info("="*60)
             logger.info(f"Số ca nhiễm: {peak_I} người tại ngày {peak_day}")
-            logger.info(f"Mạng miễn nhiễm tại ngày: {final_day}")
+            logger.info(f"Ngày kết thúc dịch (I=0): {final_day}")
             logger.info("="*60)
 
             return peak_day, peak_I, final_day

@@ -265,10 +265,13 @@
         pl: 'Ưu tiên 3',
       });
     } else if (api?.winner?.strategy) {
+      const w = api.winner;
+      const kPart = w.top_k != null ? `, top-${w.top_k}` : '';
+      const dPart = w.intervention_day != null ? `, ngày ${w.intervention_day}` : '';
       items.push({
         icon: 'blue',
-        title: `Chiến lược SIR: ${api.winner.strategy}`,
-        desc: `Đỉnh I = ${api.winner.peak_infected ?? '—'} — cân nhắc miễn nhiễm động.`,
+        title: `Can thiệp: ${w.strategy}${dPart}${kPart}`,
+        desc: `Đỉnh I = ${w.peak_infected ?? '—'} — cân nhắc miễn nhiễm động.`,
         p: 'p3',
         pl: 'Ưu tiên 3',
       });

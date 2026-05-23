@@ -140,9 +140,42 @@ body {
 .sidebar-footer {
   padding: 10px;
   border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.sidebar-footer-link {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.sidebar-footer-link:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.sidebar-footer-link:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sidebar-footer-text {
   font-size: 9px;
   color: #64748b;
   text-align: center;
+  line-height: 1.35;
 }
 
 /* Main Content */
@@ -454,7 +487,7 @@ tr:hover {
   display: grid;
   grid-template-columns: 1fr 1fr 1.2fr;
   gap: 12px;
-  min-height: 140px;
+  min-height: 0;
 }
 
 /* Selected Account */
@@ -687,14 +720,22 @@ tr:hover {
 }
 .modal-body small { font-size: 10px; color: #9ca3af; }
 .modal-foot {
-  display: flex; justify-content: flex-end; gap: 8px; padding: 10px 14px;
-  border-top: 1px solid #e5e7eb; background: #f9fafb;
+  display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap;
+  gap: 8px; padding: 10px 14px; border-top: 1px solid #e5e7eb; background: #f9fafb;
 }
+.modal-foot .modal-foot-start { margin-right: auto; }
 .modal-foot button {
   padding: 6px 12px; font-size: 11px; border-radius: 6px; border: 1px solid #d1d5db;
   background: #fff; cursor: pointer;
 }
+.modal-foot button:disabled { opacity: 0.55; cursor: not-allowed; }
 .modal-foot button.primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.modal-foot button.danger {
+  background: #fef2f2; color: #b91c1c; border-color: #fecaca;
+}
+.modal-foot button.danger:hover:not(:disabled) {
+  background: #fee2e2; border-color: #fca5a5;
+}
 .toast-msg {
   position: fixed; bottom: 20px; right: 20px; background: #1e293b; color: #fff;
   padding: 10px 14px; border-radius: 8px; font-size: 12px; z-index: 1100;

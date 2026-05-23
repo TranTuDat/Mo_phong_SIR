@@ -213,7 +213,13 @@
           'Chưa có bộ dữ liệu output. Về <a href="/">tổng quan</a> và dùng «Tạo dữ liệu».',
         chartPure: 'Đường cong S–I–R (SIR thuần)',
         chartDyn: 'Đường cong S–I–R (SIR + can thiệp)',
-        chartCmp: 'So sánh số ca nhiễm (I)',
+        chartCmp: 'So sánh số ca nhiễm (I) — SIR thuần vs các lần can thiệp',
+        cmpNeedPure:
+          'Chưa có SIR thuần. Chạy tab «SIR thuần» trước để làm kịch bản tham chiếu, sau đó chạy các lần «SIR + can thiệp» để so sánh.',
+        cmpNeedDyn:
+          'Chưa có lần mô phỏng can thiệp nào trong phiên này. Chạy «SIR + can thiệp» (betweenness / degree / eigenvector) để thêm cột so sánh.',
+        cmpStaleHint:
+          'Mỗi lần chạy lại SIR thuần sẽ xóa các lần can thiệp đang hiển thị — hãy chạy lại can thiệp sau khi đổi β, γ hoặc seed.',
         noteImmune: 'Miễn nhiễm top-{k} nút (ngày 1)',
         noteDash: '—',
         datasetS: 'Dễ bị lây (S)',
@@ -239,7 +245,7 @@
         okSir: 'Mô phỏng hoàn thành.',
         askOpenSir: 'Mở trang Mô phỏng SIR để xem biểu đồ đầy đủ?',
         savedSir: 'Đã lưu kết quả.',
-        cleanupAsk: 'Giữ 3 bản mới nhất và xóa output cũ?',
+        cleanupAsk: 'Chỉ giữ bộ dữ liệu mới nhất và xóa hết output cũ?',
         cleanupOk: 'Đã xóa {n} thư mục.',
         errCleanup: 'Không dọn được output.',
         pickCsv: 'Chọn file CSV.',
@@ -466,7 +472,13 @@
           'No output dataset yet. Go to <a href="/">overview</a> and use «Generate data».',
         chartPure: 'S–I–R curves (pure SIR)',
         chartDyn: 'S–I–R curves (SIR + intervention)',
-        chartCmp: 'Infected compartment (I) comparison',
+        chartCmp: 'Infected (I) — pure SIR vs intervention runs',
+        cmpNeedPure:
+          'No pure SIR baseline yet. Run the Pure SIR tab first, then run dynamic intervention runs to compare.',
+        cmpNeedDyn:
+          'No intervention runs in this session. Run SIR + intervention to add comparison columns.',
+        cmpStaleHint:
+          'Re-running pure SIR clears intervention runs shown here — re-run interventions after changing β, γ, or seed.',
         noteImmune: 'Immunized top-{k} nodes (day 1)',
         noteDash: '—',
         datasetS: 'Susceptible (S)',
@@ -492,7 +504,7 @@
         okSir: 'Simulation finished.',
         askOpenSir: 'Open the SIR page for full charts?',
         savedSir: 'Results saved.',
-        cleanupAsk: 'Keep 3 newest outputs and delete the rest?',
+        cleanupAsk: 'Keep only the newest dataset and delete all older outputs?',
         cleanupOk: 'Removed {n} folders.',
         errCleanup: 'Cleanup failed.',
         pickCsv: 'Please choose a CSV file.',

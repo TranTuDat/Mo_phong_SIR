@@ -17,15 +17,16 @@
     'rec.statusMissing': 'Chưa chạy',
     'rec.statusWinner': 'Đề xuất',
     'rec.winnerNone': 'Chưa có đề xuất — chạy mô phỏng SIR + can thiệp trước.',
-    'rec.winnerTitle': 'Can thiệp theo {strategy}',
+    'rec.winnerTitle': 'Can thiệp: {strategy}',
     'rec.winnerDesc':
-      'Đỉnh I = {peak}, ngày đỉnh = {peakDay}, kết thúc dịch ngày {final}. Ưu tiên miễn nhiễm các nút bên dưới.',
-    'rec.deltaDown': 'Giảm {n} ca so với SIR thuần',
-    'rec.deltaUp': 'Cao hơn SIR thuần {n} ca',
-    'rec.deltaSame': 'Bằng đỉnh SIR thuần',
+      '{strategy} — ngày can thiệp {day}, miễn nhiễm top-{k}. Đỉnh I = {peak}, kết thúc ngày {final}.',
+    'rec.deltaDown': '−{n}',
+    'rec.deltaUp': '+{n}',
+    'rec.deltaSame': '0',
     'rec.finalDay': 'Kết thúc dịch: ngày {d}',
     'rec.errLoad': 'Không tải được phân tích:',
     'rec.loading': 'Đang phân tích…',
+    'rec.noRuns': 'Chưa có mẫu nào — chạy SIR + can thiệp tại Phân tích mạng.',
   };
 
   function t(key, vars) {
@@ -43,6 +44,14 @@
     const lang = getLang();
     if (lang === 'en') return { title: meta.en, sub: meta.sub };
     return { title: meta.vi, sub: meta.sub };
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   async function fetchJson(url) {
@@ -70,55 +79,172 @@
     if (el) el.textContent = text ?? '—';
   }
 
-  function formatDelta(purePeak, winnerPeak) {
-    if (purePeak == null || winnerPeak == null) return '—';
-    const d = winnerPeak - purePeak;
+  function formatDelta(purePeak, rowPeak) {
+    if (purePeak == null || rowPeak == null) return '—';
+    const d = rowPeak - purePeak;
     if (d < 0) return t('rec.deltaDown', { n: Math.abs(d) });
     if (d > 0) return t('rec.deltaUp', { n: d });
     return t('rec.deltaSame');
   }
 
-  function renderAnalysis(data) {
-    setText('recOutputFolder', data.output_folder || '—');
+  function deltaClass(purePeak, rowPeak) {
+    if (purePeak == null || rowPeak == null) return '';
+    const d = rowPeak - purePeak;
+    if (d < 0) return 'rec-delta-good';
+    if (d > 0) return 'rec-delta-bad';
+    return '';
+  }
 
-    const rat = document.getElementById('recRationale');
-    if (rat) {
-      rat.textContent =
-        (getLang() === 'en' ? data.rationale_en : data.rationale_vi) ||
-        '—';
+  /** Thứ tự xếp hạng: kết thúc dịch sớm → đỉnh I thấp → ngày đỉnh sớm. */
+  function rankKey(row) {
+    const big = 1e9;
+    return [
+      row.final_day != null ? Number(row.final_day) : big,
+      row.peak_infected != null ? Number(row.peak_infected) : big,
+      row.peak_day != null ? Number(row.peak_day) : big,
+    ];
+  }
+
+  function compareRuns(a, b) {
+    const ka = rankKey(a);
+    const kb = rankKey(b);
+    for (let i = 0; i < 3; i++) {
+      if (ka[i] !== kb[i]) return ka[i] - kb[i];
+    }
+    return 0;
+  }
+
+  function runSignature(r) {
+    if (!r) return '';
+    return `${r.strategy}|${r.intervention_day ?? ''}|${r.top_k ?? ''}`;
+  }
+
+  function isSameRun(win, row) {
+    if (!win || !row?.available) return false;
+    if (runSignature(win) && runSignature(row) && runSignature(win) === runSignature(row)) {
+      return true;
+    }
+    return (
+      row.strategy === win.strategy &&
+      Number(row.intervention_day) === Number(win.intervention_day) &&
+      Number(row.top_k) === Number(win.top_k)
+    );
+  }
+
+  /** Luôn chọn đề xuất từ danh sách runs (tránh API winner thiếu ngày/k). */
+  function resolveWinner(data) {
+    const pool = (data.runs || []).filter((r) => r.available);
+    if (!pool.length) return null;
+    const sorted = [...pool].sort(compareRuns);
+    return sorted[0];
+  }
+
+  function renderTableRow(row, win, purePeak, opts) {
+    const { showBadge = false, emptyRuns = false } = opts || {};
+    const lbl = strategyLabel(row.strategy);
+    const tr = document.createElement('tr');
+    const isWinner = isSameRun(win, row);
+    if (isWinner) tr.className = 'rec-row-winner';
+
+    if (!row.available) {
+      tr.innerHTML = `
+        <td>
+          <div class="rec-strat-cell">
+            <strong>${escapeHtml(lbl.title)}</strong>
+            <span>${escapeHtml(lbl.sub)}</span>
+          </div>
+        </td>
+        <td colspan="7" class="rec-cell-muted">${t('rec.statusMissing')}</td>
+        ${showBadge ? '<td></td>' : ''}
+      `;
+      return tr;
     }
 
-    const p = data.pure_sir;
-    setText('recPurePeakI', p != null ? p.peak_infected : '—');
-    setText('recPurePeakDay', p != null ? p.peak_day : '—');
+    let badgeCell = '';
+    if (showBadge) {
+      const badgeClass = isWinner ? 'winner' : 'ok';
+      const badgeText = isWinner ? t('rec.statusWinner') : t('rec.statusOk');
+      badgeCell = `<td><span class="rec-badge ${badgeClass}">${badgeText}</span></td>`;
+    }
 
-    const win = data.winner;
+    const day = row.intervention_day != null ? row.intervention_day : '—';
+    const k = row.top_k != null ? row.top_k : '—';
+    const delta = formatDelta(purePeak, row.peak_infected);
+    const dCls = deltaClass(purePeak, row.peak_infected);
+
+    tr.innerHTML = `
+      <td>
+        <div class="rec-strat-cell">
+          <strong>${escapeHtml(lbl.title)}</strong>
+          <span>${escapeHtml(lbl.sub)}</span>
+        </div>
+      </td>
+      <td class="tabular-nums mau-num">${day}</td>
+      <td class="tabular-nums mau-num">${k}</td>
+      <td class="tabular-nums mau-num">${row.peak_infected}</td>
+      <td class="tabular-nums mau-num">${row.final_day}</td>
+      <td class="tabular-nums mau-num">${row.peak_day}</td>
+      <td class="tabular-nums mau-num ${dCls}">${delta}</td>
+      ${badgeCell}
+    `;
+    return tr;
+  }
+
+  function renderStrategiesTable(rows, win, purePeak) {
     const tbody = document.getElementById('recStrategiesBody');
-    if (tbody) tbody.innerHTML = '';
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    (rows || []).forEach((row) => {
+      tbody.appendChild(renderTableRow(row, win, purePeak, { showBadge: false }));
+    });
+  }
 
+  function renderRunsTable(runs, win, purePeak) {
+    const tbody = document.getElementById('recRunsBody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const available = (runs || []).filter((r) => r.available).sort(compareRuns);
+    if (!available.length) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td colspan="8" class="rec-cell-muted">${t('rec.noRuns')}</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+    available.forEach((row) => {
+      tbody.appendChild(renderTableRow(row, win, purePeak, { showBadge: true }));
+    });
+  }
+
+  function formatWinnerStrategyLine(win) {
+    const lbl = strategyLabel(win.strategy);
+    const day = win.intervention_day != null ? win.intervention_day : '—';
+    const k = win.top_k != null ? win.top_k : '—';
+    return `${lbl.title} · ngày ${day} · k=${k}`;
+  }
+
+  function renderWinnerPanel(win, pureSir) {
+    const p = pureSir;
     if (win) {
       const lbl = strategyLabel(win.strategy);
       setText('recWinnerPeakI', win.peak_infected);
-      setText('recWinnerStrategy', lbl.title);
+      setText('recWinnerStrategy', formatWinnerStrategyLine(win));
       setText('recWinnerFinal', t('rec.finalDay', { d: win.final_day }));
       setText('recWinnerDelta', formatDelta(p?.peak_infected, win.peak_infected));
 
       const titleEl = document.getElementById('recWinnerTitle');
       const sumEl = document.getElementById('recWinnerSummary');
       const hero = document.getElementById('recWinnerHero');
-      if (titleEl) {
-        titleEl.textContent = t('rec.winnerTitle', { strategy: lbl.title });
-      }
+      if (titleEl) titleEl.textContent = t('rec.winnerTitle', { strategy: lbl.title });
       if (sumEl) {
         sumEl.textContent = t('rec.winnerDesc', {
+          strategy: lbl.title,
+          day: win.intervention_day != null ? win.intervention_day : '—',
+          k: win.top_k != null ? win.top_k : '—',
           peak: win.peak_infected,
-          peakDay: win.peak_day,
           final: win.final_day,
         });
       }
-      if (hero) {
-        hero.classList.remove('rec-winner-empty');
-      }
+      if (hero) hero.classList.remove('rec-winner-empty');
     } else {
       setText('recWinnerPeakI', '—');
       setText('recWinnerStrategy', '—');
@@ -132,38 +258,9 @@
       if (hero) hero.classList.add('rec-winner-empty');
     }
 
-    (data.strategies || []).forEach((row) => {
-      const lbl = strategyLabel(row.strategy);
-      const tr = document.createElement('tr');
-      const isWinner = win && row.available && row.strategy === win.strategy;
-      if (isWinner) tr.className = 'rec-row-winner';
-
-      let badgeClass = 'missing';
-      let badgeText = t('rec.statusMissing');
-      if (row.available) {
-        badgeClass = isWinner ? 'winner' : 'ok';
-        badgeText = isWinner ? t('rec.statusWinner') : t('rec.statusOk');
-      }
-
-      tr.innerHTML = `
-        <td>
-          <div class="rec-strat-cell">
-            <strong>${escapeHtml(lbl.title)}</strong>
-            <span>${escapeHtml(lbl.sub)}</span>
-          </div>
-        </td>
-        <td class="tabular-nums mau-num">${row.available ? row.peak_infected : '—'}</td>
-        <td class="tabular-nums mau-num">${row.available ? row.peak_day : '—'}</td>
-        <td class="tabular-nums mau-num">${row.available ? row.final_day : '—'}</td>
-        <td><span class="rec-badge ${badgeClass}">${badgeText}</span></td>
-      `;
-      tbody?.appendChild(tr);
-    });
-
     const listEl = document.getElementById('recWinnerNodes');
     if (!listEl) return;
     listEl.innerHTML = '';
-
     if (!win || !(win.intervened_nodes || []).length) {
       const li = document.createElement('li');
       li.className = 'rec-node-empty';
@@ -171,7 +268,6 @@
       listEl.appendChild(li);
       return;
     }
-
     win.intervened_nodes.forEach((n, i) => {
       const li = document.createElement('li');
       li.innerHTML = `
@@ -185,12 +281,22 @@
     });
   }
 
-  function escapeHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+  function renderAnalysis(data) {
+    setText('recOutputFolder', data.output_folder || '—');
+
+    const pure = data.pure_sir;
+    const purePeak = pure?.peak_infected;
+    setText('recPurePeakI', pure != null ? pure.peak_infected : '—');
+    setText('recPurePeakDay', pure != null ? pure.peak_day : '—');
+
+    const strategies = data.strategies || [];
+    const runs = (data.runs || []).filter((r) => r.available || r.strategy);
+    const win = resolveWinner(data);
+    const pureSir = data.pure_sir;
+
+    renderStrategiesTable(strategies, win, purePeak);
+    renderRunsTable(runs, win, purePeak);
+    renderWinnerPanel(win, pureSir);
   }
 
   async function loadAnalysis() {
@@ -202,13 +308,15 @@
         `/api/intervention-recommendations${folder ? `?output_dir=${encodeURIComponent(folder)}` : ''}`
       );
       renderAnalysis(data);
+      const hasRuns = (data.runs || []).some((r) => r.available);
+      const hasStrat = (data.strategies || []).some((s) => s.available);
       if (data.warning) {
         setStatus(data.warning, 'error');
-      } else if (!data.strategies?.some((s) => s.available)) {
+      } else if (!hasRuns && !hasStrat) {
         setStatus(
           data.hint ||
             summary.hint ||
-            'Chưa có kết quả can thiệp. Vào Phân tích mạng → chạy SIR + can thiệp (3 chiến lược).',
+            'Chưa có kết quả can thiệp. Vào Phân tích mạng → chạy SIR + can thiệp.',
           'info'
         );
       } else {

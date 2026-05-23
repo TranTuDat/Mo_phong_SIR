@@ -187,7 +187,7 @@
       const response = await fetch('/api/cleanup-outputs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keep_latest: 3, include_uploaded: true }),
+        body: JSON.stringify({ keep_latest: 1, include_uploaded: true, clear_simulations: true }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const result = await response.json();

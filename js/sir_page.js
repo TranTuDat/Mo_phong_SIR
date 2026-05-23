@@ -9,9 +9,9 @@
   let currentSimModel = 'pure';
   /** @type {{ pure: object | null }} */
   const resultsByKey = { pure: null };
-  /** @type {Record<string, object>} key = `${strategy}:${intervention_day}` */
+  /** @type {Record<string, object>} key = `${strategy}:${intervention_day}:${top_k}` */
   const dynamicRuns = {};
-  /** 'pure' | `${strategy}:${intervention_day}` — mẫu đang xem ở tab Đồ thị / Chỉ số */
+  /** 'pure' | `${strategy}:${intervention_day}:${top_k}` — mẫu đang xem ở tab Đồ thị / Chỉ số */
   let activeSirRunKey = 'pure';
 
   function t(key, vars) {
@@ -71,7 +71,17 @@
   function dynamicRunKeyFromRun(run) {
     const strat = run.strategy || 'betweenness';
     const day = run.intervention_day != null ? run.intervention_day : 1;
-    return `${strat}:${day}`;
+    const k = run.top_k != null ? run.top_k : 0;
+    return `${strat}:${day}:${k}`;
+  }
+
+  /** Parse khóa lần chạy: strategy:day[:top_k] (hỗ trợ khóa cũ 2 phần). */
+  function parseDynamicRunKey(key) {
+    const parts = String(key || '').split(':');
+    const strat = parts[0] || 'betweenness';
+    const day = parseInt(parts[1], 10) || 1;
+    const k = parts.length >= 3 ? parseInt(parts[2], 10) : null;
+    return { strategy: strat, intervention_day: day, top_k: Number.isFinite(k) ? k : null };
   }
 
   function strategyShortName(strat) {
@@ -80,11 +90,80 @@
     return 'betweenness';
   }
 
+  function sortDynamicRunKeys(keys) {
+    return keys.slice().sort((a, b) => {
+      const pa = parseDynamicRunKey(a);
+      const pb = parseDynamicRunKey(b);
+      if (pa.strategy !== pb.strategy) return pa.strategy.localeCompare(pb.strategy);
+      if (pa.intervention_day !== pb.intervention_day) return pa.intervention_day - pb.intervention_day;
+      return (pa.top_k ?? 0) - (pb.top_k ?? 0);
+    });
+  }
+
+  function clearDynamicRuns() {
+    Object.keys(dynamicRuns).forEach((k) => delete dynamicRuns[k]);
+    dynamicResults = null;
+    if (simCompareChart) {
+      simCompareChart.destroy();
+      simCompareChart = null;
+    }
+  }
+
+  function canShowComparison() {
+    return Boolean(resultsByKey.pure) && Object.keys(dynamicRuns).length > 0;
+  }
+
+  async function ensurePureBaselineForComparison() {
+    if (resultsByKey.pure) return true;
+    let folder;
+    try {
+      const s = await fetchJson('/api/summary');
+      if (!s?.ready || !s.output_folder) return false;
+      folder = s.output_folder;
+    } catch {
+      return false;
+    }
+    try {
+      const d = await fetchSirResultsFromApi(folder, 'pure');
+      const run = sirApiDataToRunModel(d, 'pure');
+      resultsByKey.pure = run;
+      pureResults = run;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function updateComparisonEmptyState() {
+    const empty = document.getElementById('sirComparisonEmpty');
+    const content = document.getElementById('sirComparisonContent');
+    const cmpBtn = document.querySelector('.result-tab-btn[data-sir-tab="comparison"]');
+    const can = canShowComparison();
+
+    if (empty) {
+      if (!can) {
+        empty.hidden = false;
+        if (!resultsByKey.pure) {
+          empty.textContent = t('sir.cmpNeedPure');
+        } else {
+          empty.textContent = t('sir.cmpNeedDyn');
+        }
+      } else {
+        empty.hidden = true;
+      }
+    }
+    if (content) content.hidden = !can;
+    if (cmpBtn) {
+      cmpBtn.classList.toggle('sir-tab-disabled', !can);
+      cmpBtn.title = can ? '' : !resultsByKey.pure ? t('sir.cmpNeedPure') : t('sir.cmpNeedDyn');
+    }
+  }
+
   function formatDynamicRunLabel(run, key) {
-    const strat = run?.strategy || (key && key.split(':')[0]) || 'betweenness';
-    const day =
-      run?.intervention_day != null ? run.intervention_day : parseInt((key || '').split(':')[1], 10) || 1;
-    const topK = run?.top_k != null ? run.top_k : '—';
+    const parsed = parseDynamicRunKey(key);
+    const strat = run?.strategy || parsed.strategy || 'betweenness';
+    const day = run?.intervention_day != null ? run.intervention_day : parsed.intervention_day;
+    const topK = run?.top_k != null ? run.top_k : parsed.top_k != null ? parsed.top_k : '—';
     return t('sir.runDynFmt', {
       strategy: strategyShortName(strat),
       day,
@@ -95,7 +174,7 @@
   function listSirRunOptions() {
     const opts = [];
     if (resultsByKey.pure) opts.push({ key: 'pure', type: 'pure' });
-    for (const k of Object.keys(dynamicRuns).sort()) {
+    for (const k of sortDynamicRunKeys(Object.keys(dynamicRuns))) {
       opts.push({ key: k, type: 'dynamic', run: dynamicRuns[k] });
     }
     return opts;
@@ -161,7 +240,8 @@
       model === 'pure' ? 'SIR thuần' : 'SIR + can thiệp (miễn nhiễm động)';
     updateStatsSim(data, modelLabel);
     updateResultsStrip(data);
-    if (resultsByKey.pure && Object.keys(dynamicRuns).length) {
+    updateComparisonEmptyState();
+    if (canShowComparison()) {
       updateComparisonTableSim();
     }
     refreshSirChartsForTab(getActiveSirResultTab());
@@ -187,6 +267,12 @@
   }
 
   function switchSirResultTab(tab, evt) {
+    if (tab === 'comparison' && !canShowComparison()) {
+      const cmpBtn = document.querySelector('.result-tab-btn[data-sir-tab="comparison"]');
+      if (!resultsByKey.pure && cmpBtn) {
+        showSimStatus(t('sir.cmpNeedPure'), 'info');
+      }
+    }
     document.querySelectorAll('.sim-results-panel .result-tab-content').forEach((el) => {
       el.classList.remove('active');
     });
@@ -211,10 +297,7 @@
     if (tab === 'chart') {
       if (data?.history?.length) drawSirSimChart(data.history, sirChartTitleForModel(model));
     } else if (tab === 'comparison') {
-      if (resultsByKey.pure && Object.keys(dynamicRuns).length) {
-        drawSirComparisonChart();
-        updateComparisonTableSim();
-      }
+      refreshComparisonTab();
     } else if (tab === 'stats' && data) {
       updateStatsSim(data, model === 'pure' ? 'SIR thuần' : 'SIR + can thiệp (miễn nhiễm động)');
     }
@@ -296,9 +379,10 @@
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Lỗi mô phỏng');
+      clearDynamicRuns();
       pureResults = data;
-      dynamicResults = null;
       resultsByKey.pure = data;
+      updateComparisonEmptyState();
       switchSirResultTab('chart', {
         currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="chart"]'),
       });
@@ -353,13 +437,22 @@
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Lỗi mô phỏng');
-      const rk = `${strategy}:${data.intervention_day != null ? data.intervention_day : interventionDay}`;
+      const rk = dynamicRunKeyFromRun({
+        strategy: data.strategy || strategy,
+        intervention_day: data.intervention_day != null ? data.intervention_day : interventionDay,
+        top_k: data.top_k != null ? data.top_k : topK,
+      });
       dynamicRuns[rk] = data;
       dynamicResults = data;
       switchSirResultTab('chart', {
         currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="chart"]'),
       });
       displayDynamicResults(data, rk);
+      updateComparisonEmptyState();
+      if (canShowComparison() && getActiveSirResultTab() === 'comparison') {
+        drawSirComparisonChart();
+        updateComparisonTableSim();
+      }
       showSimStatus(t('msgs.doneDyn'), 'success');
     } catch (error) {
       showSimStatus('Lỗi: ' + error.message, 'error');
@@ -516,16 +609,34 @@
     resizeSirCharts();
   }
 
+  async function refreshComparisonTab() {
+    updateComparisonEmptyState();
+    if (!resultsByKey.pure) {
+      await ensurePureBaselineForComparison();
+      updateComparisonEmptyState();
+    }
+    if (!canShowComparison()) {
+      if (simCompareChart) {
+        simCompareChart.destroy();
+        simCompareChart = null;
+      }
+      document.getElementById('sirCmpChartWrap')?.classList.remove('sir-chart-has-data');
+      return;
+    }
+    drawSirComparisonChart();
+    updateComparisonTableSim();
+  }
+
   function drawSirComparisonChart() {
-    markSirChartHasData();
     const canvas = document.getElementById('comparisonSimChart');
     if (!canvas || typeof Chart === 'undefined') return;
     const ctx = canvas.getContext('2d');
     if (simCompareChart) simCompareChart.destroy();
     const pure = resultsByKey.pure;
     if (!pure) return;
-    const keys = Object.keys(dynamicRuns).sort();
+    const keys = sortDynamicRunKeys(Object.keys(dynamicRuns));
     if (!keys.length) return;
+    markSirChartHasData();
 
     let maxDay = 0;
     for (const h of pure.history || []) maxDay = Math.max(maxDay, h.day);
@@ -568,13 +679,15 @@
 
     keys.forEach((key, idx) => {
       const run = dynamicRuns[key];
-      const strat = run.strategy || key.split(':')[0];
-      const day =
-        run.intervention_day != null ? run.intervention_day : parseInt(key.split(':')[1], 10) || 1;
+      const parsed = parseDynamicRunKey(key);
+      const strat = run.strategy || parsed.strategy;
+      const day = run.intervention_day != null ? run.intervention_day : parsed.intervention_day;
+      const topK = run.top_k != null ? run.top_k : parsed.top_k;
       const sShort =
         strat === 'degree' ? 'degree' : strat === 'eigenvector' ? 'eigenvector' : 'betweenness';
       const dayWord = getLang() === 'en' ? 'day' : 'ngày';
-      const label = `${t('sir.cmpDyn')} (${sShort}, ${dayWord} ${day}) — I`;
+      const kPart = topK != null ? `, k=${topK}` : '';
+      const label = `${t('sir.cmpDyn')} (${sShort}, ${dayWord} ${day}${kPart}) — I`;
       const [bc, fill] = palette[idx % palette.length];
       datasets.push({
         label,
@@ -617,9 +730,9 @@
     const pure = resultsByKey.pure;
     const headRow = document.getElementById('comparisonSimTableHeadRow');
     const bodyEl = document.getElementById('comparisonSimTableBody');
-    if (!pure || !headRow || !bodyEl) return;
+    if (!pure || !headRow || !bodyEl || !canShowComparison()) return;
 
-    const keys = Object.keys(dynamicRuns).sort();
+    const keys = sortDynamicRunKeys(Object.keys(dynamicRuns));
     const lang = getLang();
 
     headRow.replaceChildren();
@@ -633,13 +746,15 @@
     headRow.appendChild(thPure);
     for (const k of keys) {
       const run = dynamicRuns[k];
-      const strat = run.strategy || k.split(':')[0];
-      const day =
-        run.intervention_day != null ? run.intervention_day : parseInt(k.split(':')[1], 10) || 1;
+      const parsed = parseDynamicRunKey(k);
+      const strat = run.strategy || parsed.strategy;
+      const day = run.intervention_day != null ? run.intervention_day : parsed.intervention_day;
+      const topK = run.top_k != null ? run.top_k : parsed.top_k;
       const sShort =
         strat === 'degree' ? 'degree' : strat === 'eigenvector' ? 'eigenvector' : 'betweenness';
       const th = document.createElement('th');
-      th.textContent = `${t('sir.cmpDyn')}: ${sShort}, ${lang === 'en' ? 'day' : 'ngày'} ${day}`;
+      const kTxt = topK != null ? `, k=${topK}` : '';
+      th.textContent = `${t('sir.cmpDyn')}: ${sShort}, ${lang === 'en' ? 'day' : 'ngày'} ${day}${kTxt}`;
       headRow.appendChild(th);
     }
 
@@ -671,10 +786,13 @@
     }
   }
 
-  async function fetchSirResultsFromApi(datasetFolder, model, strategy, interventionDay) {
+  async function fetchSirResultsFromApi(datasetFolder, model, strategy, interventionDay, topK) {
     let url = `/api/sir-results?output_dir=${encodeURIComponent(datasetFolder)}&model=${encodeURIComponent(model)}`;
     if (model === 'dynamic') {
       url += `&strategy=${encodeURIComponent(strategy)}&intervention_day=${encodeURIComponent(String(interventionDay))}`;
+      if (topK != null && topK !== '') {
+        url += `&top_k=${encodeURIComponent(String(topK))}`;
+      }
     }
     const r = await fetch(url, { cache: 'no-store' });
     const body = await r.json().catch(() => ({}));
@@ -720,9 +838,16 @@
     }
     for (const row of list.dynamic_runs || []) {
       try {
-        const d = await fetchSirResultsFromApi(s.output_folder, 'dynamic', row.strategy, row.intervention_day);
+        const d = await fetchSirResultsFromApi(
+          s.output_folder,
+          'dynamic',
+          row.strategy,
+          row.intervention_day,
+          row.top_k
+        );
         const run = sirApiDataToRunModel(d, 'dynamic');
-        dynamicRuns[`${row.strategy}:${row.intervention_day}`] = run;
+        if (run.top_k == null && row.top_k != null) run.top_k = row.top_k;
+        dynamicRuns[dynamicRunKeyFromRun(run)] = run;
         restored += 1;
       } catch (e) {
         console.warn('restore dynamic', row, e);
@@ -730,8 +855,9 @@
     }
     if (!restored) return;
     showSimStatus(t('msgs.restoredSir', { n: restored }), 'success');
+    updateComparisonEmptyState();
     if (resultsByKey.pure && Object.keys(dynamicRuns).length) {
-      const dkLast = Object.keys(dynamicRuns).sort();
+      const dkLast = sortDynamicRunKeys(Object.keys(dynamicRuns));
       const lastKey = dkLast[dkLast.length - 1];
       switchSirResultTab('chart', {
         currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="chart"]'),
@@ -745,7 +871,7 @@
       });
       setActiveSirRun('pure');
     } else {
-      const dk = Object.keys(dynamicRuns).sort();
+      const dk = sortDynamicRunKeys(Object.keys(dynamicRuns));
       if (dk.length) {
         const lastKey = dk[dk.length - 1];
         syncSirRunPicker(lastKey);
@@ -780,12 +906,13 @@
         output_directory: out,
         strategy: strategy || 'betweenness',
         intervention_day: parseInt(p.get('intervention_day') || '1', 10) || 1,
+        top_k: p.get('top_k') ? parseInt(p.get('top_k'), 10) : null,
       };
       if (model === 'dynamic') {
         dynamicResults = pseudo;
         pureResults = null;
         switchModel('dynamic');
-        const rk = `${pseudo.strategy}:${pseudo.intervention_day}`;
+        const rk = dynamicRunKeyFromRun(pseudo);
         dynamicRuns[rk] = pseudo;
         displayDynamicResults(pseudo);
       } else {
@@ -808,7 +935,8 @@
     dynamicResults = null;
     resultsByKey.pure = null;
     activeSirRunKey = 'pure';
-    Object.keys(dynamicRuns).forEach((k) => delete dynamicRuns[k]);
+    clearDynamicRuns();
+    updateComparisonEmptyState();
     const picker = document.getElementById('sirRunPicker');
     if (picker) picker.hidden = true;
     if (simLineChart) {
@@ -853,6 +981,7 @@
     if (!new URLSearchParams(window.location.search).get('output_dir')) {
       await restoreSavedSirRuns(summary);
     }
+    updateComparisonEmptyState();
   }
 
   window.addEventListener('DOMContentLoaded', () => {

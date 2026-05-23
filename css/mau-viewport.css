@@ -1,0 +1,197 @@
+/**
+ * Trang vừa một viewport (không scroll cả trang).
+ * Các vùng nội dung dài vẫn scroll bên trong panel/card.
+ */
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+.dashboard {
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+.main-content {
+  min-height: 0;
+}
+
+.header,
+.footer {
+  flex-shrink: 0;
+}
+
+.content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* === Tổng quan === */
+body[data-mau-page="overview"] .content {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, auto);
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+body[data-mau-page="overview"] .stats-row {
+  flex-shrink: 0;
+}
+
+body[data-mau-page="overview"] .main-grid {
+  min-height: 0;
+}
+
+body[data-mau-page="overview"] .main-grid .card {
+  min-height: 0;
+}
+
+body[data-mau-page="overview"] .bottom-grid {
+  min-height: 0;
+  max-height: min(168px, 20vh);
+}
+
+body[data-mau-page="overview"] .bottom-grid .card {
+  min-height: 0;
+}
+
+body[data-mau-page="overview"] .bottom-grid .card-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* === Trang con (SIR, đề xuất) — shell không scroll, con scroll === */
+.mau-subpage-content {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 0;
+}
+
+body[data-mau-page="simulation"] .mau-sim-head,
+body[data-mau-page="recommendations"] .mau-rec-head {
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+body[data-mau-page="simulation"] .simulation-container,
+body[data-mau-page="recommendations"] .rec-main-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body[data-mau-page="recommendations"] .rec-kpi-row,
+body[data-mau-page="recommendations"] .rec-status-bar:not([hidden]) {
+  flex-shrink: 0;
+}
+
+body[data-mau-page="recommendations"] .rec-tables-stack {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body[data-mau-page="recommendations"] .rec-table-card {
+  flex: 1;
+  min-height: 0;
+}
+
+body[data-mau-page="recommendations"] .rec-winner-card {
+  min-height: 0;
+  overflow: hidden;
+}
+
+body[data-mau-page="recommendations"] .rec-winner-card .card-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body[data-mau-page="recommendations"] .rec-node-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* === Mô phỏng SIR === */
+body[data-mau-page="simulation"] .simulation-container {
+  align-items: stretch;
+}
+
+body[data-mau-page="simulation"] .sim-controls-panel {
+  align-self: stretch;
+  max-height: none;
+  min-height: 0;
+  height: auto;
+}
+
+body[data-mau-page="simulation"] .sim-controls-panel .card-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+body[data-mau-page="simulation"] .sim-results-panel {
+  min-height: 0;
+}
+
+body[data-mau-page="simulation"] .result-tab-content {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+body[data-mau-page="simulation"] #sir-chart-tab.result-tab-content {
+  overflow: hidden;
+}
+
+body[data-mau-page="simulation"] .sim-chart-wrap,
+body[data-mau-page="simulation"] .sim-chart-wrap.sir-chart-tall {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+body[data-mau-page="simulation"] .mau-form-group {
+  margin-bottom: 10px;
+}
+
+/* === Vùng scroll nội bộ (bảng, sidebar, so sánh) === */
+.dashboard .table-container {
+  overflow: auto;
+}
+
+.dashboard .comparison-table {
+  overflow-x: auto;
+  overflow-y: auto;
+  flex-shrink: 1;
+  min-height: 0;
+}
+
+.dashboard .nav-menu {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+@media (max-height: 820px) {
+  body[data-mau-page="overview"] .bottom-grid {
+    max-height: min(140px, 18vh);
+  }
+
+  body[data-mau-page="simulation"] .mau-form-group {
+    margin-bottom: 8px;
+  }
+
+  body[data-mau-page="simulation"] .model-tabs {
+    margin-bottom: 10px;
+  }
+}
