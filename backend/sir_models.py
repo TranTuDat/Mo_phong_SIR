@@ -33,6 +33,34 @@ def epidemic_final_day_from_history(history: pd.DataFrame) -> int:
     return int(history['day'].iloc[-1])
 
 
+def sir_epidemic_totals_from_history(
+    history: pd.DataFrame,
+    n_nodes: int | None = None,
+) -> tuple[int, int]:
+    """
+    (total_ever_infected, never_infected) tại ngày kết thúc dịch (I=0).
+
+    - total_ever_infected: số nút từng ở trạng thái I (bệnh), không tính miễn nhiễm từ S.
+    - never_infected: nút còn S — không từng nhiễm (cô lập hoặc không tiếp xúc dịch).
+    """
+    final_day = epidemic_final_day_from_history(history)
+    sub = history[history['day'] <= final_day]
+    if sub.empty:
+        sub = history
+    row = sub[sub['day'] == final_day]
+    if row.empty:
+        row = sub.iloc[-1:]
+    s_end = int(row['S'].iloc[0])
+    if 'cum_infected' in history.columns:
+        total = int(sub['cum_infected'].max())
+    else:
+        total = int(row['R'].iloc[0])
+    never = s_end
+    if n_nodes is not None and n_nodes > 0 and 'cum_infected' not in history.columns:
+        never = max(0, min(s_end, n_nodes - total))
+    return total, never
+
+
 def _discover_dataset_dirs() -> list[Path]:
     """Các thư mục output_* / output_uploaded_* trong outputs/ và (legacy) root repo."""
     out = _REPO_ROOT / 'outputs'
@@ -181,6 +209,8 @@ class PureSIRSimulation:
             # chọn node nhiễm ban đầu
             init_idx = random.randint(0, n - 1)
             state[init_idx] = 1
+            ever_infected = np.zeros(n, dtype=bool)
+            ever_infected[init_idx] = True
 
             logger.info(f"🦠 Node nhiễm ban đầu: {node_list[init_idx]}")
 
@@ -188,7 +218,8 @@ class PureSIRSimulation:
                 'day': [0],
                 'S': [np.sum(state == 0)],
                 'I': [np.sum(state == 1)],
-                'R': [np.sum(state == 2)]
+                'R': [np.sum(state == 2)],
+                'cum_infected': [int(np.sum(ever_infected))],
             }
 
             logger.info(f"Day 0: S={history['S'][0]}, I={history['I'][0]}, R={history['R'][0]}")
@@ -215,6 +246,7 @@ class PureSIRSimulation:
                                 new_state[nei_idx] = 1
 
                 state = new_state
+                ever_infected |= state == 1
 
                 S = int(np.sum(state == 0))
                 I = int(np.sum(state == 1))
@@ -224,6 +256,7 @@ class PureSIRSimulation:
                 history['S'].append(S)
                 history['I'].append(I)
                 history['R'].append(R)
+                history['cum_infected'].append(int(np.sum(ever_infected)))
 
                 if day % 10 == 0:
                     logger.info(f"Day {day}: S={S}, I={I}, R={R}")
@@ -234,6 +267,8 @@ class PureSIRSimulation:
                     break
 
             self.history = pd.DataFrame(history)
+            self.total_infected_nodes = int(np.sum(ever_infected))
+            self.never_infected_nodes = n - self.total_infected_nodes
 
             logger.info("\n✓ Hoàn thành mô phỏng!\n")
         except Exception as e:
@@ -249,7 +284,7 @@ class PureSIRSimulation:
         Tính toán thống kê mô phỏng
         
         Returns:
-            tuple: (peak_day, peak_infected, final_day)
+            tuple: (peak_day, peak_infected, final_day, total_infected, never_infected)
             
         Raises:
             ValueError: Nếu chưa có dữ liệu mô phỏng
@@ -263,6 +298,10 @@ class PureSIRSimulation:
             peak_infected = int(self.history['I'].max())
 
             final_day = epidemic_final_day_from_history(self.history)
+            total_inf, never_inf = sir_epidemic_totals_from_history(
+                self.history,
+                self.graph.number_of_nodes() if self.graph is not None else None,
+            )
 
             logger.info("="*60)
             logger.info("THỐNG KÊ SIR")
@@ -270,9 +309,11 @@ class PureSIRSimulation:
             logger.info(f"🔥 Ngày đỉnh dịch: {peak_day}")
             logger.info(f"👥 Đỉnh số ca nhiễm: {peak_infected}")
             logger.info(f"🛡️ Ngày kết thúc dịch: {final_day}")
+            logger.info(f"📊 Tổng nút từng nhiễm: {total_inf}")
+            logger.info(f"🟢 Không bao giờ nhiễm: {never_inf}")
             logger.info("="*60 + "\n")
 
-            return peak_day, peak_infected, final_day
+            return peak_day, peak_infected, final_day, total_inf, never_inf
         except Exception as e:
             logger.error(f"Lỗi tính toán thống kê: {e}")
             raise
@@ -291,7 +332,7 @@ class PureSIRSimulation:
             raise ValueError("Chưa có dữ liệu mô phỏng. Gọi simulate() trước")
         
         try:
-            peak_day, peak_infected, final_day = self.get_statistics()
+            peak_day, peak_infected, final_day, total_inf, never_inf = self.get_statistics()
 
             df = self.history[self.history['day'] <= final_day]
 
@@ -313,7 +354,9 @@ class PureSIRSimulation:
             text_str = (
                 f"Ngày đỉnh dịch: {peak_day}\n"
                 f"Đỉnh số ca nhiễm: {peak_infected}\n"
-                f"Ngày kết thúc: {final_day}"
+                f"Ngày kết thúc: {final_day}\n"
+                f"Tổng từng nhiễm: {total_inf}\n"
+                f"Không bao giờ nhiễm: {never_inf}"
             )
 
             plt.text(
@@ -598,6 +641,8 @@ class SIRDynamicImmunization:
             # chọn 1 node nhiễm ban đầu
             init_idx = random.randint(0, n - 1)
             state[init_idx] = 1
+            ever_infected = np.zeros(n, dtype=bool)
+            ever_infected[init_idx] = True
 
             logger.info(f"🦠 Node nhiễm ban đầu: {node_list[init_idx]}")
 
@@ -605,7 +650,8 @@ class SIRDynamicImmunization:
                 'day': [0],
                 'S': [np.sum(state == 0)],
                 'I': [np.sum(state == 1)],
-                'R': [np.sum(state == 2)]
+                'R': [np.sum(state == 2)],
+                'cum_infected': [int(np.sum(ever_infected))],
             }
 
             immunized = False
@@ -631,6 +677,7 @@ class SIRDynamicImmunization:
                                 new_state[j] = 1
 
                 state = new_state
+                ever_infected |= state == 1
 
                 # =====================
                 # TẠI intervention_day → MIỄN NHIỄM
@@ -658,6 +705,7 @@ class SIRDynamicImmunization:
                 history['S'].append(S)
                 history['I'].append(I)
                 history['R'].append(R)
+                history['cum_infected'].append(int(np.sum(ever_infected)))
 
                 if day % 10 == 0:
                     logger.info(f"Day {day}: S={S}, I={I}, R={R}")
@@ -668,6 +716,8 @@ class SIRDynamicImmunization:
                     break
 
             self.history = pd.DataFrame(history)
+            self.total_infected_nodes = int(np.sum(ever_infected))
+            self.never_infected_nodes = n - self.total_infected_nodes
             history_path = os.path.join(self.results_dir, 'sir_history.csv')
             self.history.to_csv(history_path, index=False)
             logger.info(f'✓ Lưu history: {history_path}')
@@ -705,7 +755,7 @@ class SIRDynamicImmunization:
         Tính toán thống kê mô phỏng
         
         Returns:
-            tuple: (peak_day, peak_I, final_day)
+            tuple: (peak_day, peak_I, final_day, total_infected, never_infected)
             
         Raises:
             ValueError: Nếu chưa có dữ liệu mô phỏng
@@ -718,15 +768,21 @@ class SIRDynamicImmunization:
             peak_day = int(self.history.loc[peak_idx, 'day'])
             peak_I = int(self.history['I'].max())
             final_day = epidemic_final_day_from_history(self.history)
+            total_inf, never_inf = sir_epidemic_totals_from_history(
+                self.history,
+                self.graph.number_of_nodes() if self.graph is not None else None,
+            )
 
             logger.info("\n" + "="*60)
             logger.info("📊 THỐNG KÊ")
             logger.info("="*60)
             logger.info(f"Số ca nhiễm: {peak_I} người tại ngày {peak_day}")
             logger.info(f"Ngày kết thúc dịch (I=0): {final_day}")
+            logger.info(f"Tổng nút từng nhiễm: {total_inf}")
+            logger.info(f"Không bao giờ nhiễm: {never_inf}")
             logger.info("="*60)
 
-            return peak_day, peak_I, final_day
+            return peak_day, peak_I, final_day, total_inf, never_inf
         except Exception as e:
             logger.error(f"Lỗi tính toán thống kê: {e}")
             raise

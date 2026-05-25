@@ -44,12 +44,16 @@ def test_pure_sir_api():
         assert 'peak_day' in data
         assert 'peak_infected' in data
         assert 'final_day' in data
+        assert 'total_infected' in data
+        assert 'never_infected' in data
         assert 'history' in data
         
         print(f"✓ Pure SIR simulation successful")
         print(f"  - Peak day: {data['peak_day']}")
         print(f"  - Peak infected: {data['peak_infected']}")
         print(f"  - Final day: {data['final_day']}")
+        print(f"  - Total ever infected: {data['total_infected']}")
+        print(f"  - Never infected: {data['never_infected']}")
         print(f"  - History points: {len(data['history'])}")
         
         return True
@@ -79,6 +83,8 @@ def test_dynamic_sir_api():
         assert 'peak_day' in data
         assert 'peak_infected' in data
         assert 'final_day' in data
+        assert 'total_infected' in data
+        assert 'never_infected' in data
         assert 'history' in data
         assert 'top_k' in data
         assert data.get('intervention_day', 1) == 1
@@ -87,6 +93,8 @@ def test_dynamic_sir_api():
         print(f"  - Peak day: {data['peak_day']}")
         print(f"  - Peak infected: {data['peak_infected']}")
         print(f"  - Final day: {data['final_day']}")
+        print(f"  - Total ever infected: {data['total_infected']}")
+        print(f"  - Never infected: {data['never_infected']}")
         print(f"  - Top-k: {data['top_k']}")
         print(f"  - History points: {len(data['history'])}")
         

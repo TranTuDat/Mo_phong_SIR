@@ -114,7 +114,7 @@
             <h2 class="mau-page-title">Phân tích mạng</h2>
             <p class="mau-page-subtitle">Mô phỏng SIR trên mạng xã hội — theo dõi lan truyền, so sánh can thiệp theo nút trọng yếu (betweenness, degree, eigenvector).</p>
           </div>
-          <p id="dataHint" class="mau-sim-alert" hidden>Chưa có dữ liệu mạng. Chọn <strong>Nhập dữ liệu</strong> trên menu để sinh mạng hoặc tải CSV.</p>
+          <p id="dataHint" class="mau-sim-alert" hidden></p>
         </div>
         <div class="simulation-container">
           <div class="card sim-controls-panel">
@@ -154,7 +154,7 @@
                 <div class="mau-form-group"><label for="interventionStrategy">Chiến lược can thiệp</label>
                   <select id="interventionStrategy"><option value="betweenness">Betweenness</option><option value="degree">Degree</option><option value="eigenvector">Eigenvector</option></select>
                 </div>
-                <div class="mau-form-group"><label for="interventionDay">Ngày can thiệp</label><input type="number" id="interventionDay" value="1" min="1" max="300" /><p class="mau-note">Ngày 1 = ngày đầu tiên của mô phỏng</p></div>
+                <div class="mau-form-group"><label for="interventionDay">Ngày can thiệp</label><input type="number" id="interventionDay" value="1" min="1" max="300" /></div>
                 <div class="mau-form-group"><label for="dynSeed">Seed (tái lập)</label><input type="number" id="dynSeed" value="42" min="1" max="99999" /></div>
                 <button type="button" id="btnRunDynamicSimulation" class="sim-run-btn">▶ Chạy SIR + can thiệp</button>
               </div>
@@ -164,6 +164,7 @@
           <div class="card sim-results-panel">
             <div class="card-header sim-results-header">
               <span class="card-title">Kết quả mô phỏng</span>
+              <button type="button" class="sir-export-pdf-btn" id="btnExportSirPdf" hidden data-i18n="sir.exportPdf">Xuất PDF</button>
               <div id="sirRunPicker" class="sir-run-picker sir-run-picker--head" hidden>
                 <label for="sirRunSelect">Lần chạy</label>
                 <select id="sirRunSelect"></select>
@@ -174,7 +175,7 @@
               <div class="sir-strip-card"><span class="sir-strip-label">Ngày đỉnh</span><strong id="stripPeakDay" class="mau-num">—</strong></div>
               <div class="sir-strip-card"><span class="sir-strip-label">Max I</span><strong id="stripPeakInfected" class="mau-num">—</strong></div>
               <div class="sir-strip-card"><span class="sir-strip-label">Ngày kết thúc</span><strong id="stripFinalDay" class="mau-num">—</strong></div>
-              <div class="sir-strip-card"><span class="sir-strip-label">S cuối</span><strong id="stripSusceptibleEnd" class="mau-num">—</strong></div>
+              <div class="sir-strip-card"><span class="sir-strip-label" data-i18n="sir.stripTotalInfected">Tổng từng nhiễm</span><strong id="stripTotalInfected" class="mau-num">—</strong></div>
             </div>
             <div class="results-tabs">
               <button type="button" class="result-tab-btn active" data-sir-tab="chart">Đồ thị S-I-R</button>
@@ -184,9 +185,7 @@
             <div class="card-body sim-results-body">
               <div id="sir-chart-tab" class="result-tab-content active">
                 <div class="sim-chart-wrap sir-chart-tall" id="sirChartWrap">
-                  <div id="sirChartPlaceholder" class="sir-chart-placeholder">
-                    <p>Điều chỉnh tham số bên trái, sau đó bấm <strong>Chạy SIR</strong> để xem đường cong lan truyền.</p>
-                  </div>
+                  <div id="sirChartPlaceholder" class="sir-chart-placeholder" hidden></div>
                   <canvas id="sirSimChart"></canvas>
                 </div>
               </div>
@@ -194,8 +193,9 @@
                 <div class="sim-stats-grid">
                   <div class="mau-mini-stat"><span>Ngày đỉnh</span><strong id="statPeakDaySim" class="mau-num">—</strong></div>
                   <div class="mau-mini-stat"><span>Max I</span><strong id="statPeakInfectedSim" class="mau-num">—</strong></div>
-                  <div class="mau-mini-stat"><span>Ngày kết thúc</span><strong id="statFinalDaySim" class="mau-num">—</strong></div>
-                  <div class="mau-mini-stat"><span>R cuối</span><strong id="statTotalRecoveredSim" class="mau-num">—</strong></div>
+                  <div class="mau-mini-stat"><span data-i18n="sir.statFinal">Ngày kết thúc</span><strong id="statFinalDaySim" class="mau-num">—</strong></div>
+                  <div class="mau-mini-stat"><span data-i18n="sir.statTotalInfected">Tổng nút từng nhiễm</span><strong id="statTotalInfectedSim" class="mau-num">—</strong></div>
+                  <div class="mau-mini-stat"><span data-i18n="sir.statR">Hồi phục (R) cuối</span><strong id="statTotalRecoveredSim" class="mau-num">—</strong></div>
                 </div>
                 <div class="additional-stats"><h4>Chi tiết</h4>
                   <table id="statsTableSim" class="mau-detail-table">
@@ -209,8 +209,10 @@
               <div id="sir-comparison-tab" class="result-tab-content">
                 <p id="sirComparisonEmpty" class="sir-comparison-empty" hidden></p>
                 <div id="sirComparisonContent" class="sir-comparison-content" hidden>
-                  <div class="sim-chart-wrap sir-chart-tall" id="sirCmpChartWrap"><canvas id="comparisonSimChart"></canvas></div>
-                  <div class="comparison-table"><table><thead><tr id="comparisonSimTableHeadRow"></tr></thead><tbody id="comparisonSimTableBody"></tbody></table></div>
+                  <div class="sim-chart-wrap sir-chart-tall sir-cmp-chart-wrap" id="sirCmpChartWrap"><canvas id="comparisonSimChart"></canvas></div>
+                  <div class="comparison-table sir-cmp-table-scroll" id="sirCmpTableWrap">
+                    <table><thead><tr id="comparisonSimTableHeadRow"></tr></thead><tbody id="comparisonSimTableBody"></tbody></table>
+                  </div>
                 </div>
               </div>
             </div>
@@ -230,7 +232,7 @@
     <div class="modal-head"><h3>Tạo dữ liệu mạng</h3><button type="button" class="modal-close" id="modalClose">&times;</button></div>
     <div class="modal-body">
       <div><label for="numUsers">Số người dùng</label><input type="number" id="numUsers" value="500" min="10" max="10000" step="10" /><small>Đang tải giới hạn…</small></div>
-      <div><label for="relationshipProb">Xác suất có cạnh</label><input type="number" id="relationshipProb" value="0.025" min="0.001" max="0.1" step="0.001" /><small>0,001–0,1</small></div>
+      <div><label for="relationshipProb">Xác suất có cạnh</label><input type="number" id="relationshipProb" value="0.025" min="0.001" max="0.1" step="0.001" /></div>
       <div><label for="randomSeed">Seed</label><input type="number" id="randomSeed" value="42" min="1" max="9999" /></div>
       <div><label for="dataSource">Nguồn</label><select id="dataSource"><option value="generate">Sinh ngẫu nhiên</option><option value="upload">Tải CSV</option></select></div>
       <div id="fileUploadGroup" style="display:none"><label for="dataFile">File CSV</label><input type="file" id="dataFile" accept=".csv" /></div>
@@ -244,6 +246,7 @@
   <script src="/js/i18n.js"></script>
   <script src="/js/mau-shell.js"></script>
   <script src="/vendor/chart.min.js"></script>
+  <script src="/vendor/jspdf.umd.min.js"></script>
   <script src="/js/sir_page.js"></script>
 </body>
 </html>

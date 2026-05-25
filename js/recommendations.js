@@ -19,7 +19,7 @@
     'rec.winnerNone': 'Chưa có đề xuất — chạy mô phỏng SIR + can thiệp trước.',
     'rec.winnerTitle': 'Can thiệp: {strategy}',
     'rec.winnerDesc':
-      '{strategy} — ngày can thiệp {day}, miễn nhiễm top-{k}. Đỉnh I = {peak}, kết thúc ngày {final}.',
+      '{strategy} — ngày can thiệp {day}, miễn nhiễm top-{k}. Tổng nhiễm = {total}, đỉnh I = {peak}, kết thúc ngày {final}.',
     'rec.deltaDown': '−{n}',
     'rec.deltaUp': '+{n}',
     'rec.deltaSame': '0',
@@ -95,13 +95,13 @@
     return '';
   }
 
-  /** Thứ tự xếp hạng: kết thúc dịch sớm → đỉnh I thấp → ngày đỉnh sớm. */
+  /** Thứ tự xếp hạng: tổng nhiễm thấp → đỉnh I thấp → kết thúc dịch sớm. */
   function rankKey(row) {
     const big = 1e9;
     return [
-      row.final_day != null ? Number(row.final_day) : big,
+      row.total_infected != null ? Number(row.total_infected) : big,
       row.peak_infected != null ? Number(row.peak_infected) : big,
-      row.peak_day != null ? Number(row.peak_day) : big,
+      row.final_day != null ? Number(row.final_day) : big,
     ];
   }
 
@@ -240,6 +240,7 @@
           strategy: lbl.title,
           day: win.intervention_day != null ? win.intervention_day : '—',
           k: win.top_k != null ? win.top_k : '—',
+          total: win.total_infected != null ? win.total_infected : '—',
           peak: win.peak_infected,
           final: win.final_day,
         });

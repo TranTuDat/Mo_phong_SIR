@@ -133,6 +133,71 @@ class SocialNetworkGenerator:
             logger.error(f"Lỗi khi tạo người dùng: {e}")
             raise
     
+    def generate_uniform_relationships(self, relationship_probability: float = 0.025) -> list:
+        """
+        Mô hình Erdős–Rényi G(n, p): mọi cặp nút có cùng xác suất tạo cạnh p.
+        Cụm cộng đồng được phát hiện sau khi đã có đồ thị (greedy modularity).
+        """
+        if not (0 <= relationship_probability <= 1):
+            raise ValueError("relationship_probability phải trong khoảng [0, 1]")
+        if not self.users:
+            raise ValueError("Chưa có người dùng")
+
+        p = relationship_probability
+        user_ids = [int(u['user_id']) for u in self.users]
+        self.relationships = []
+        seen: set[tuple[int, int]] = set()
+
+        def add_edge(a: int, b: int) -> None:
+            if a == b:
+                return
+            key = (min(a, b), max(a, b))
+            if key in seen:
+                return
+            seen.add(key)
+            self.relationships.append({'user1_id': a, 'user2_id': b})
+
+        for i in range(len(user_ids)):
+            for j in range(i + 1, len(user_ids)):
+                if random.random() < p:
+                    add_edge(user_ids[i], user_ids[j])
+
+        logger.info(
+            "✓ Quan hệ đồng nhất G(n,p): p=%.4f, %d nút, %d cạnh",
+            p,
+            len(user_ids),
+            len(self.relationships),
+        )
+        return self.relationships
+
+    def assign_detected_communities(self) -> None:
+        """Gán community_id sau khi có đồ thị — không gán trước khi tạo cạnh."""
+        if self.graph is None:
+            raise ValueError("Chưa có đồ thị. Gọi create_graph() trước")
+
+        n = self.graph.number_of_nodes()
+        if use_fast_graph_algorithms(n):
+            logger.info('Phát hiện cụm: một cụm (mạng lớn / server)')
+            communities = [set(self.graph.nodes())] if n else []
+        else:
+            try:
+                communities = list(nx.community.greedy_modularity_communities(self.graph))
+            except Exception as exc:
+                logger.warning('greedy_modularity thất bại (%s); gộp một cụm', exc)
+                communities = [set(self.graph.nodes())] if n else []
+
+        communities = sorted(communities, key=lambda c: (-len(c), min(c)))
+        node_to_comm: dict[int, int] = {}
+        for idx, comm in enumerate(communities):
+            for nid in comm:
+                node_to_comm[int(nid)] = idx
+
+        for u in self.users:
+            uid = int(u['user_id'])
+            u['community_id'] = node_to_comm.get(uid, 0)
+
+        logger.info("✓ Phát hiện %d cụm trên đồ thị đã tạo", len(communities))
+
     def generate_community_relationships(
         self,
         relationship_probability: float = 0.025,
@@ -140,7 +205,8 @@ class SocialNetworkGenerator:
         num_communities: int | None = None,
     ) -> list:
         """
-        Tạo quan hệ theo cấu trúc cộng đồng: dày trong cụm, thưa giữa các cụm.
+        (Legacy) Tạo quan hệ theo cấu trúc cộng đồng đặt trước: dày trong cụm, thưa giữa cụm.
+        Không dùng mặc định — giữ để tham chiếu / thử nghiệm.
         """
         if not (0 <= relationship_probability <= 1):
             raise ValueError("relationship_probability phải trong khoảng [0, 1]")
@@ -196,13 +262,13 @@ class SocialNetworkGenerator:
         return self.relationships
 
     def generate_relationships(self, relationship_probability: float = 0.15) -> list:
-        """Tạo quan hệ — mặc định dùng mô hình community (SNA thực tế)."""
+        """Tạo quan hệ — mọi cặp nút cùng xác suất p (mô hình G(n, p))."""
         try:
             logger.info(
-                "Bắt đầu tạo quan hệ community (xác suất cơ sở: %s%%)...",
+                "Bắt đầu tạo quan hệ đồng nhất G(n,p), p=%s%%...",
                 relationship_probability * 100,
             )
-            return self.generate_community_relationships(relationship_probability)
+            return self.generate_uniform_relationships(relationship_probability)
         except Exception as e:
             logger.error(f"Lỗi khi tạo quan hệ: {e}")
             raise
@@ -444,6 +510,7 @@ class SocialNetworkGenerator:
             self.generate_users()
             self.generate_relationships(relationship_prob)
             self.create_graph()
+            self.assign_detected_communities()
             self.print_statistics()
             if skip_heavy_viz():
                 logger.info('Bỏ qua visualize_graph (MO_PHONG_SKIP_VIZ / Render)')

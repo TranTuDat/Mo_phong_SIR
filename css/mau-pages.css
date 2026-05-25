@@ -474,25 +474,83 @@ body[data-mau-page="simulation"] .content {
   color: #6b7280;
 }
 
+#sir-comparison-tab.result-tab-content.active {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .sir-comparison-content {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
+  flex: none;
+  min-height: min-content;
   gap: 12px;
+  padding-bottom: 12px;
 }
 
-.sir-comparison-content .comparison-table {
-  flex: 1;
+.sir-comparison-content .sir-cmp-chart-wrap {
+  flex: 0 0 auto;
+  min-height: clamp(480px, 72vh, 920px);
+  height: clamp(480px, 72vh, 920px);
+  max-height: none;
+  margin-bottom: 0;
+}
+
+.sir-comparison-content .sir-cmp-chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.sir-comparison-content .sir-cmp-table-scroll {
+  flex: 0 0 auto;
+  max-height: none;
   min-height: 0;
+  overflow: visible;
 }
 
-.comparison-table {
+.sir-export-pdf-btn {
+  margin-left: auto;
+  margin-right: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sir-export-pdf-btn:hover:not(:disabled) {
+  background: #dbeafe;
+}
+
+.sir-export-pdf-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sim-results-header .sir-export-pdf-btn {
+  order: 2;
+}
+
+.sim-results-header .sir-run-picker--head {
+  order: 3;
+}
+
+.comparison-table,
+.sir-cmp-table-scroll {
   overflow-x: auto;
-  overflow-y: auto;
+  overflow-y: visible;
   margin-top: 0;
-  flex-shrink: 1;
+  flex-shrink: 0;
   min-height: 0;
+}
+
+.sir-cmp-table-scroll table {
+  min-width: 100%;
 }
 
 .comparison-table table {
@@ -603,6 +661,12 @@ body[data-mau-page="recommendations"] .content {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+.rec-table-hint,
+.sir-cmp-table-hint,
+.sir-comparison-empty:not([hidden]) {
+  display: none !important;
 }
 
 .rec-table-hint {
@@ -847,6 +911,11 @@ body[data-mau-page="recommendations"] .content {
     flex: 1;
     min-height: 0;
     height: auto;
+  }
+
+  .sir-comparison-content .sir-cmp-chart-wrap {
+    min-height: clamp(360px, 58vh, 720px);
+    height: clamp(360px, 58vh, 720px);
   }
 }
 

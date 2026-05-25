@@ -109,6 +109,303 @@
     }
   }
 
+  function updateExportPdfButton() {
+    const btn = document.getElementById('btnExportSirPdf');
+    if (!btn) return;
+    const hasData = !!resultsByKey.pure || Object.keys(dynamicRuns).length > 0;
+    btn.hidden = !hasData;
+    btn.disabled = false;
+    btn.title = '';
+  }
+
+  async function ensureAllRunsLoadedForExport(outputFolder) {
+    if (!outputFolder) return;
+    try {
+      const list = await fetchJson(
+        `/api/sir-saved-runs?output_dir=${encodeURIComponent(outputFolder)}`
+      );
+      if (list.pure_available && !resultsByKey.pure) {
+        const d = await fetchSirResultsFromApi(outputFolder, 'pure');
+        const run = sirApiDataToRunModel(d, 'pure');
+        resultsByKey.pure = run;
+        pureResults = run;
+      }
+      for (const item of list.dynamic_runs || []) {
+        const rk = dynamicRunKeyFromRun(item);
+        if (dynamicRuns[rk]) continue;
+        try {
+          const d = await fetchSirResultsFromApi(
+            outputFolder,
+            'dynamic',
+            item.strategy,
+            item.intervention_day,
+            item.top_k
+          );
+          const run = sirApiDataToRunModel(d, 'dynamic');
+          dynamicRuns[rk] = run;
+          resultsByKey[rk] = run;
+        } catch (e) {
+          console.warn('load run for export', rk, e);
+        }
+      }
+    } catch (e) {
+      console.warn('ensureAllRunsLoadedForExport', e);
+    }
+  }
+
+  function slimRunForExport(run, model) {
+    if (!run) return null;
+    return {
+      model,
+      strategy: run.strategy,
+      intervention_day: run.intervention_day,
+      top_k: run.top_k,
+      peak_day: run.peak_day,
+      peak_infected: run.peak_infected,
+      final_day: run.final_day,
+      total_infected: run.total_infected != null ? run.total_infected : totalInfectedFromData(run),
+      history: run.history || [],
+    };
+  }
+
+  function collectSirExportPayload(outputFolder) {
+    const pure = slimRunForExport(resultsByKey.pure, 'pure');
+    const dynamic_runs = sortDynamicRunKeys(Object.keys(dynamicRuns)).map((k) =>
+      slimRunForExport(dynamicRuns[k], 'dynamic')
+    );
+    return {
+      output_folder: outputFolder || '',
+      lang: getLang(),
+      pure,
+      dynamic_runs,
+    };
+  }
+
+  function comparisonMetricsRows() {
+    const pure = resultsByKey.pure;
+    if (!pure) return [];
+    const keys = sortDynamicRunKeys(Object.keys(dynamicRuns));
+    const defs = [
+      { label: t('sir.cmpPeak'), key: 'peak_day' },
+      { label: t('sir.cmpPeakI'), key: 'peak_infected' },
+      { label: t('sir.cmpFinal'), key: 'final_day' },
+      { label: t('sir.cmpTotalInfected'), key: 'total_infected' },
+    ];
+    const header = [t('sir.cmpMetric'), t('sir.cmpPure')].concat(
+      keys.map((k) => {
+        const run = dynamicRuns[k];
+        const p = parseDynamicRunKey(k);
+        const s = run.strategy || p.strategy;
+        const d = run.intervention_day != null ? run.intervention_day : p.intervention_day;
+        const tk = run.top_k != null ? run.top_k : p.top_k;
+        return `${s} d${d} k${tk}`;
+      })
+    );
+    const rows = [header];
+    for (const def of defs) {
+      const row = [def.label, pure[def.key] != null ? String(pure[def.key]) : '—'];
+      for (const k of keys) {
+        const v = dynamicRuns[k][def.key];
+        row.push(v != null ? String(v) : '—');
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  function downloadPdfBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportSirPdfInBrowser(outputFolder) {
+    const jsPDF = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDF) throw new Error('Thiếu thư viện jsPDF');
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const lang = getLang();
+
+    const addPageHeader = (title) => {
+      doc.setFontSize(16);
+      doc.text(title, 40, 36);
+      doc.setFontSize(10);
+      if (outputFolder) {
+        doc.text(`${lang === 'en' ? 'Folder' : 'Thư mục'}: ${outputFolder}`, 40, 54);
+      }
+    };
+
+    addPageHeader(lang === 'en' ? 'Full SIR report (browser)' : 'Báo cáo SIR đầy đủ (trình duyệt)');
+    let y = 72;
+    doc.setFontSize(11);
+    const keys = sortDynamicRunKeys(Object.keys(dynamicRuns));
+    const lines = [
+      lang === 'en' ? 'Simulations included:' : 'Các mô phỏng trong báo cáo:',
+      resultsByKey.pure ? '• Pure SIR' : '',
+      ...keys.map((k) => {
+        const run = dynamicRuns[k];
+        const p = parseDynamicRunKey(k);
+        const s = run.strategy || p.strategy;
+        const d = run.intervention_day != null ? run.intervention_day : p.intervention_day;
+        const tk = run.top_k != null ? run.top_k : p.top_k;
+        return `• ${s}, day ${d}, k=${tk}`;
+      }),
+    ].filter(Boolean);
+    for (const line of lines) {
+      if (y > pageH - 40) {
+        doc.addPage();
+        y = 40;
+      }
+      doc.text(line, 40, y);
+      y += 14;
+    }
+
+    const addChartPage = (chart, caption) => {
+      if (!chart) return;
+      let img;
+      try {
+        img = chart.toBase64Image('image/jpeg', 0.95);
+        if (!img || img.length < 200 || !/^data:image\/jpe?g;base64,/.test(img)) {
+          return;
+        }
+      } catch (e) {
+        console.warn('chart image export failed', e);
+        return;
+      }
+      doc.addPage();
+      addPageHeader(caption);
+      const imgW = pageW - 80;
+      const imgH = pageH - 100;
+      doc.addImage(img, 'JPEG', 40, 64, imgW, imgH);
+    };
+
+    if (simLineChart && resultsByKey.pure) {
+      addChartPage(
+        simLineChart,
+        lang === 'en' ? 'Pure SIR (active view)' : 'SIR thuần (đang xem)'
+      );
+    }
+    if (simCompareChart && canShowComparison()) {
+      addChartPage(
+        simCompareChart,
+        lang === 'en' ? 'Compare I — all runs' : 'So sánh I — tất cả kịch bản'
+      );
+    } else if (simCompareChart) {
+      addChartPage(simCompareChart, lang === 'en' ? 'Comparison chart' : 'Đồ thị so sánh');
+    }
+
+    doc.addPage();
+    addPageHeader(lang === 'en' ? 'Metrics table' : 'Bảng so sánh chỉ số');
+    y = 80;
+    doc.setFontSize(8);
+    const rows = comparisonMetricsRows();
+    for (const row of rows) {
+      if (y > pageH - 36) {
+        doc.addPage();
+        y = 40;
+        doc.setFontSize(8);
+      }
+      doc.text(row.join('  |  '), 36, y, { maxWidth: pageW - 72 });
+      y += 12;
+    }
+
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    doc.save(`sir_bao_cao_day_du_${stamp}.pdf`);
+  }
+
+  async function fetchSirPdfBlob(outputFolder) {
+    const payload = {
+      action: 'export_pdf',
+      ...collectSirExportPayload(outputFolder),
+    };
+    const attempts = [
+      () =>
+        fetch('/api/simulate-sir', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      () =>
+        fetch('/api/sir-export-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(collectSirExportPayload(outputFolder)),
+        }),
+      () =>
+        fetch('/api/sir_export_pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(collectSirExportPayload(outputFolder)),
+        }),
+    ];
+    let lastStatus = 0;
+    for (const run of attempts) {
+      const response = await run();
+      lastStatus = response.status;
+      if (response.ok) {
+        const ct = (response.headers.get('Content-Type') || '').toLowerCase();
+        if (ct.includes('application/pdf')) {
+          return response;
+        }
+      }
+      if (response.status !== 404 && response.status !== 405) {
+        break;
+      }
+    }
+    const err = new Error(`HTTP ${lastStatus}`);
+    err.status = lastStatus;
+    throw err;
+  }
+
+  async function exportSirPdf() {
+    const btn = document.getElementById('btnExportSirPdf');
+    if (btn) btn.disabled = true;
+    showSimStatus(t('sir.exportPdfRunning'), 'loading');
+    try {
+      let outputFolder = '';
+      try {
+        const summary = await fetchJson('/api/summary');
+        outputFolder = summary.output_folder || '';
+      } catch {
+        /* optional */
+      }
+
+      await ensureAllRunsLoadedForExport(outputFolder);
+      if (!resultsByKey.pure && !Object.keys(dynamicRuns).length) {
+        showSimStatus(t('sir.exportPdfNeedPure'), 'error');
+        return;
+      }
+
+      if (canShowComparison() && getActiveSirResultTab() !== 'comparison') {
+        await refreshComparisonTab();
+      }
+
+      try {
+        const response = await fetchSirPdfBlob(outputFolder);
+        const blob = await response.blob();
+        const disp = response.headers.get('Content-Disposition') || '';
+        let filename = 'sir_bao_cao.pdf';
+        const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i.exec(disp);
+        if (m) filename = decodeURIComponent(m[1].trim());
+        downloadPdfBlob(blob, filename);
+        showSimStatus(t('sir.exportPdfDone'), 'success');
+      } catch (apiErr) {
+        exportSirPdfInBrowser(outputFolder);
+        showSimStatus(t('sir.exportPdfDone'), 'success');
+      }
+    } catch (error) {
+      showSimStatus(`${t('sir.exportPdfErr')}: ${error.message}`, 'error');
+    } finally {
+      updateExportPdfButton();
+    }
+  }
+
   function canShowComparison() {
     return Boolean(resultsByKey.pure) && Object.keys(dynamicRuns).length > 0;
   }
@@ -141,16 +438,8 @@
     const can = canShowComparison();
 
     if (empty) {
-      if (!can) {
-        empty.hidden = false;
-        if (!resultsByKey.pure) {
-          empty.textContent = t('sir.cmpNeedPure');
-        } else {
-          empty.textContent = t('sir.cmpNeedDyn');
-        }
-      } else {
-        empty.hidden = true;
-      }
+      empty.hidden = true;
+      empty.textContent = '';
     }
     if (content) content.hidden = !can;
     if (cmpBtn) {
@@ -338,17 +627,30 @@
     el.className = 'status-message sim-status-msg ' + (type || 'info');
   }
 
+  function totalInfectedFromData(data) {
+    if (data.total_infected != null) return data.total_infected;
+    if (!data.history || !data.history.length) return null;
+    const hist = data.history;
+    const finalDay = data.final_day != null ? data.final_day : hist[hist.length - 1].day;
+    let row = hist.find((h) => h.day === finalDay);
+    if (!row) row = hist[hist.length - 1];
+    if (row.cum_infected != null) {
+      const sub = hist.filter((h) => h.day <= finalDay);
+      return Math.max(...sub.map((h) => Number(h.cum_infected) || 0));
+    }
+    return row.R;
+  }
+
   function updateResultsStrip(data) {
     const peakDay = document.getElementById('stripPeakDay');
     const peakI = document.getElementById('stripPeakInfected');
     const finalD = document.getElementById('stripFinalDay');
-    const susEnd = document.getElementById('stripSusceptibleEnd');
+    const totalInf = document.getElementById('stripTotalInfected');
+    const total = totalInfectedFromData(data);
     if (peakDay) peakDay.textContent = data.peak_day;
     if (peakI) peakI.textContent = data.peak_infected;
     if (finalD) finalD.textContent = data.final_day;
-    if (susEnd && data.history && data.history.length) {
-      susEnd.textContent = data.history[data.history.length - 1].S;
-    }
+    if (totalInf) totalInf.textContent = total != null ? total : '—';
     const strip = document.getElementById('sirResultsStrip');
     if (strip) strip.hidden = false;
   }
@@ -387,6 +689,7 @@
         currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="chart"]'),
       });
       displayPureResults(data);
+      updateExportPdfButton();
       showSimStatus(t('msgs.donePure'), 'success');
     } catch (error) {
       showSimStatus('Lỗi: ' + error.message, 'error');
@@ -449,6 +752,7 @@
       });
       displayDynamicResults(data, rk);
       updateComparisonEmptyState();
+      updateExportPdfButton();
       if (canShowComparison() && getActiveSirResultTab() === 'comparison') {
         drawSirComparisonChart();
         updateComparisonTableSim();
@@ -462,11 +766,14 @@
   }
 
   function updateStatsSim(data, modelLabel) {
+    const total = totalInfectedFromData(data);
     const recovered =
       data.history && data.history.length ? data.history[data.history.length - 1].R : 0;
     document.getElementById('statPeakDaySim').textContent = data.peak_day;
     document.getElementById('statPeakInfectedSim').textContent = data.peak_infected;
     document.getElementById('statFinalDaySim').textContent = data.final_day;
+    const elTotal = document.getElementById('statTotalInfectedSim');
+    if (elTotal) elTotal.textContent = total != null ? total : '—';
     document.getElementById('statTotalRecoveredSim').textContent = recovered;
     document.getElementById('detailModelSim').textContent = modelLabel;
     const isPure = currentSimModel === 'pure';
@@ -509,25 +816,41 @@
   }
 
   const SIR_CHART_FONT = 12;
+  const SIR_CMP_CHART_FONT = 14;
 
-  function sirChartTextOpts() {
+  function sirChartTextOpts(fontSize) {
+    const fs = fontSize || SIR_CHART_FONT;
     return {
       plugins: {
         legend: {
           position: 'top',
-          labels: { font: { size: SIR_CHART_FONT }, boxWidth: 14, padding: 14 },
+          labels: { font: { size: fs }, boxWidth: 14, padding: 14 },
         },
-        title: { font: { size: SIR_CHART_FONT + 1 } },
-        tooltip: { titleFont: { size: SIR_CHART_FONT }, bodyFont: { size: SIR_CHART_FONT } },
+        title: { font: { size: fs + 1 } },
+        tooltip: { titleFont: { size: fs }, bodyFont: { size: fs } },
       },
       scales: {
         x: {
-          ticks: { font: { size: SIR_CHART_FONT - 1 } },
-          title: { font: { size: SIR_CHART_FONT } },
+          ticks: { font: { size: fs - 1 }, maxRotation: 0 },
+          title: { font: { size: fs } },
         },
         y: {
-          ticks: { font: { size: SIR_CHART_FONT - 1 } },
-          title: { font: { size: SIR_CHART_FONT } },
+          ticks: { font: { size: fs - 1 } },
+          title: { font: { size: fs } },
+        },
+      },
+    };
+  }
+
+  function sirCmpChartOpts() {
+    const base = sirChartTextOpts(SIR_CMP_CHART_FONT);
+    return {
+      ...base,
+      plugins: {
+        ...base.plugins,
+        legend: {
+          ...base.plugins.legend,
+          labels: { ...base.plugins.legend.labels, boxWidth: 16, padding: 16 },
         },
       },
     };
@@ -673,7 +996,7 @@
         backgroundColor: 'rgba(234, 67, 53, 0.08)',
         tension: 0.35,
         fill: true,
-        borderWidth: 2,
+        borderWidth: 2.5,
       },
     ];
 
@@ -696,7 +1019,7 @@
         backgroundColor: fill,
         tension: 0.35,
         fill: true,
-        borderWidth: 2,
+        borderWidth: 2.5,
       });
     });
 
@@ -710,16 +1033,16 @@
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          ...sirChartTextOpts().plugins,
+          ...sirCmpChartOpts().plugins,
           title: {
             display: true,
             text: t('sir.chartCmp') || 'So sánh đỉnh I — SIR thuần vs can thiệp',
-            font: { size: SIR_CHART_FONT + 1 },
+            font: { size: SIR_CMP_CHART_FONT + 2 },
           },
         },
         scales: {
-          x: sirChartTextOpts().scales.x,
-          y: { ...sirChartTextOpts().scales.y, beginAtZero: true },
+          x: sirCmpChartOpts().scales.x,
+          y: { ...sirCmpChartOpts().scales.y, beginAtZero: true },
         },
       },
     });
@@ -763,6 +1086,7 @@
       { tKey: 'sir.cmpPeak', pureKey: 'peak_day', runKey: 'peak_day' },
       { tKey: 'sir.cmpPeakI', pureKey: 'peak_infected', runKey: 'peak_infected' },
       { tKey: 'sir.cmpFinal', pureKey: 'final_day', runKey: 'final_day' },
+      { tKey: 'sir.cmpTotalInfected', pureKey: 'total_infected', runKey: 'total_infected' },
     ];
     for (const def of rowsDef) {
       const tr = document.createElement('tr');
@@ -806,6 +1130,8 @@
       peak_day: st.peak_day,
       peak_infected: st.peak_infected,
       final_day: st.final_day,
+      total_infected: st.total_infected,
+      never_infected: st.never_infected,
       history: d.history,
       output_directory: d.output_directory || null,
       strategy: d.strategy,
@@ -880,6 +1206,7 @@
     }
     const strip = document.getElementById('sirResultsStrip');
     if (strip) strip.hidden = false;
+    updateExportPdfButton();
   }
 
   async function tryLoadFromUrl() {
@@ -973,6 +1300,7 @@
     });
     document.getElementById('btnRunPureSimulation')?.addEventListener('click', runPureSimulation);
     document.getElementById('btnRunDynamicSimulation')?.addEventListener('click', runDynamicSimulation);
+    document.getElementById('btnExportSirPdf')?.addEventListener('click', exportSirPdf);
     document.getElementById('sirRunSelect')?.addEventListener('change', (e) => {
       setActiveSirRun(e.target.value);
     });
@@ -982,6 +1310,7 @@
       await restoreSavedSirRuns(summary);
     }
     updateComparisonEmptyState();
+    updateExportPdfButton();
   }
 
   window.addEventListener('DOMContentLoaded', () => {

@@ -2,7 +2,8 @@ import os
 
 os.environ.setdefault('MPLBACKEND', 'Agg')
 
-from flask import Flask, jsonify, request, send_from_directory, abort
+from flask import Flask, jsonify, request, send_from_directory, send_file, abort
+from io import BytesIO
 from pathlib import Path
 from typing import Optional, Set, Tuple
 import pandas as pd
@@ -19,6 +20,7 @@ import random
 from .deploy_env import max_users_limit, on_render_deploy, skip_heavy_viz, use_fast_graph_algorithms
 from .Tao_nguoi_dung_va_do_thi import SocialNetworkGenerator, OUTPUT_ROOT
 from .sir_models import PureSIRSimulation, SIRDynamicImmunization, epidemic_final_day_from_history
+from .sir_pdf_report import build_sir_comparison_pdf_bytes
 from .sir_sim_paths import (
     clear_dataset_sir_results,
     clear_orphan_legacy_sir_dirs,
@@ -250,25 +252,28 @@ def create_graph(users: pd.DataFrame, relationships: pd.DataFrame) -> nx.Graph:
 def _intervention_rank_key(run: dict) -> tuple:
     """
     Thứ tự ưu tiên (nhỏ hơn = tốt hơn):
-    1) Kết thúc dịch sớm (final_day) — ngăn dịch kéo dài
-    2) Đỉnh dịch thấp (peak_infected)
-    3) Ngày đỉnh sớm (peak_day)
+    1) Tổng nút từng nhiễm thấp (total_infected)
+    2) Đỉnh đồng thời nhiễm thấp (peak_infected)
+    3) Kết thúc dịch sớm (final_day)
     """
     big = 10**9
     return (
-        int(run['final_day']) if run.get('final_day') is not None else big,
+        int(run['total_infected']) if run.get('total_infected') is not None else big,
         int(run['peak_infected']) if run.get('peak_infected') is not None else big,
-        int(run['peak_day']) if run.get('peak_day') is not None else big,
+        int(run['final_day']) if run.get('final_day') is not None else big,
     )
 
 
 def sir_metrics_from_history_df(df: pd.DataFrame, n_nodes: int) -> tuple:
-    """(peak_day, peak_infected, final_day). final_day = ngày đầu tiên I=0 (sau ngày 0)."""
+    """(peak_day, peak_infected, final_day, total_infected, never_infected)."""
+    from .sir_models import sir_epidemic_totals_from_history
+
     peak_idx = df['I'].idxmax()
     peak_day = int(df.loc[peak_idx, 'day'])
     peak_I = int(df['I'].max())
     final_day = epidemic_final_day_from_history(df)
-    return peak_day, peak_I, final_day
+    total_inf, never_inf = sir_epidemic_totals_from_history(df, n_nodes)
+    return peak_day, peak_I, final_day, total_inf, never_inf
 
 
 def _intervention_run_row(
@@ -295,11 +300,13 @@ def _intervention_run_row(
             'peak_day': None,
             'peak_infected': None,
             'final_day': None,
+            'total_infected': None,
+            'never_infected': None,
             'node_ids': node_ids,
             'intervened_nodes': [],
         }
     dfp = pd.read_csv(hist_path)
-    peak_day, peak_I, final_day = sir_metrics_from_history_df(dfp, n_nodes)
+    peak_day, peak_I, final_day, total_inf, never_inf = sir_metrics_from_history_df(dfp, n_nodes)
     detail = [{'id': nid, 'name': id_to_name.get(nid, str(nid))} for nid in node_ids]
     out_day = int(intervention_day)
     out_k = int(top_k)
@@ -322,9 +329,103 @@ def _intervention_run_row(
         'peak_day': int(peak_day),
         'peak_infected': int(peak_I),
         'final_day': int(final_day),
+        'total_infected': int(total_inf),
+        'never_infected': int(never_inf),
         'node_ids': node_ids,
         'intervened_nodes': detail,
     }
+
+
+def _load_sir_export_payload_from_folder(folder: Path) -> tuple[Optional[dict], list[dict]]:
+    """Đọc SIR thuần + các lần can thiệp đã lưu trên đĩa (cho xuất PDF)."""
+    users_csv = folder / 'users.csv'
+    if not users_csv.exists():
+        raise FileNotFoundError('Thiếu users.csv trong output')
+
+    users = pd.read_csv(users_csv)
+    id_col = 'user_id' if 'user_id' in users.columns else 'id'
+    name_col = 'name' if 'name' in users.columns else id_col
+    id_to_name = {int(r[id_col]): str(r.get(name_col, r[id_col])) for _, r in users.iterrows()}
+    n_nodes = len(users)
+
+    pure = None
+    pure_hist_path = find_pure_sir_history_csv(folder)
+    if pure_hist_path is not None:
+        pdf = pd.read_csv(pure_hist_path)
+        pd_day, pd_pi, pd_fd, pd_ti, pd_ni = sir_metrics_from_history_df(pdf, n_nodes)
+        pure = {
+            'model': 'pure',
+            'peak_day': pd_day,
+            'peak_infected': pd_pi,
+            'final_day': pd_fd,
+            'total_infected': pd_ti,
+            'never_infected': pd_ni,
+            'history': pdf.to_dict(orient='records'),
+        }
+
+    dynamic_runs: list[dict] = []
+    for item in list_saved_dynamic_sir_runs(folder):
+        row = _intervention_run_row(
+            folder,
+            id_to_name,
+            n_nodes,
+            item['strategy'],
+            int(item['intervention_day']),
+            int(item['top_k']),
+        )
+        if not row.get('available'):
+            continue
+        hist_path = find_dynamic_sir_history_csv(
+            folder, row['strategy'], row['intervention_day'], row['top_k']
+        )
+        if hist_path is None:
+            continue
+        dfp = pd.read_csv(hist_path)
+        row['history'] = dfp.to_dict(orient='records')
+        dynamic_runs.append(row)
+
+    return pure, dynamic_runs
+
+
+def _run_export_key(run: dict) -> tuple:
+    if run.get('model') == 'pure' or run.get('is_pure'):
+        return ('pure', '', 0, 0)
+    return (
+        'dynamic',
+        str(run.get('strategy') or 'betweenness'),
+        int(run.get('intervention_day') or 0),
+        int(run.get('top_k') or 0),
+    )
+
+
+def _merge_export_runs(
+    pure_session: Optional[dict],
+    dynamic_session: Optional[list],
+    disk_pure: Optional[dict],
+    disk_runs: list[dict],
+) -> tuple[Optional[dict], list[dict]]:
+    """Gộp phiên hiện tại + mọi lần chạy đã lưu trên đĩa."""
+    pure = disk_pure
+    if pure_session:
+        if not pure or (pure_session.get('history') and len(pure_session.get('history') or []) >= len(pure.get('history') or [])):
+            pure = pure_session
+
+    merged: dict[tuple, dict] = {}
+    for r in disk_runs or []:
+        merged[_run_export_key(r)] = r
+    for r in dynamic_session or []:
+        if not r:
+            continue
+        k = _run_export_key(r)
+        prev = merged.get(k)
+        if prev is None or (
+            r.get('history')
+            and len(r.get('history') or []) >= len(prev.get('history') or [])
+        ):
+            merged[k] = r
+
+    dynamic_list = [merged[k] for k in sorted(merged.keys()) if k[0] == 'dynamic']
+    return pure, dynamic_list
 
 
 def build_intervention_recommendations(folder: Path) -> dict:
@@ -342,11 +443,13 @@ def build_intervention_recommendations(folder: Path) -> dict:
     pure_metrics = None
     if pure_hist_path is not None:
         pdf = pd.read_csv(pure_hist_path)
-        pd_day, pd_pi, pd_fd = sir_metrics_from_history_df(pdf, n_nodes)
+        pd_day, pd_pi, pd_fd, pd_ti, pd_ni = sir_metrics_from_history_df(pdf, n_nodes)
         pure_metrics = {
             'peak_day': pd_day,
             'peak_infected': pd_pi,
             'final_day': pd_fd,
+            'total_infected': pd_ti,
+            'never_infected': pd_ni,
         }
 
     saved = list_saved_dynamic_sir_runs(folder)
@@ -375,6 +478,8 @@ def build_intervention_recommendations(folder: Path) -> dict:
                     'peak_day': None,
                     'peak_infected': None,
                     'final_day': None,
+                    'total_infected': None,
+                    'never_infected': None,
                     'node_ids': [],
                     'intervened_nodes': [],
                 }
@@ -406,6 +511,8 @@ def build_intervention_recommendations(folder: Path) -> dict:
                     'peak_day': None,
                     'peak_infected': None,
                     'final_day': None,
+                    'total_infected': None,
+                    'never_infected': None,
                     'node_ids': [],
                     'intervened_nodes': [],
                     'is_best_for_strategy': False,
@@ -2353,7 +2460,7 @@ def api_run_simulate():
                 intervention_day=intervention_day,
             )
             sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days, seed=seed)
-            peak_day, peak_I, final_day = sim.get_statistics()
+            peak_day, peak_I, final_day, total_inf, never_inf = sim.get_statistics()
             return jsonify({
                 'model': 'dynamic',
                 'strategy': sim.strategy,
@@ -2363,11 +2470,13 @@ def api_run_simulate():
                 'peak_day': peak_day,
                 'peak_infected': peak_I,
                 'final_day': final_day,
+                'total_infected': total_inf,
+                'never_infected': never_inf,
             })
 
         sim = PureSIRSimulation(output_dir=output_dir)
         sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days, seed=seed)
-        peak_day, peak_I, final_day = sim.get_statistics()
+        peak_day, peak_I, final_day, total_inf, never_inf = sim.get_statistics()
         sim.save()
         return jsonify({
             'model': 'pure',
@@ -2375,6 +2484,8 @@ def api_run_simulate():
             'peak_day': peak_day,
             'peak_infected': peak_I,
             'final_day': final_day,
+            'total_infected': total_inf,
+            'never_infected': never_inf,
         })
     except Exception as e:
         logger.error(f'Error in api_run_simulate: {e}')
@@ -2384,7 +2495,9 @@ def api_run_simulate():
 @app.route('/api/simulate-sir', methods=['POST'])
 def api_simulate_sir():
     try:
-        payload = request.get_json() or {}
+        payload = request.get_json(silent=True) or {}
+        if payload.get('action') == 'export_pdf':
+            return _handle_sir_export_pdf(payload)
         model = payload.get('model', 'pure')
         folder, users, relationships, _metrics = load_output_data(payload.get('output_dir'))
         graph = create_graph(users, relationships)
@@ -2405,7 +2518,7 @@ def api_simulate_sir():
                 intervention_day=intervention_day,
             )
             sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days, seed=seed)
-            peak_day, peak_I, final_day = sim.get_statistics()
+            peak_day, peak_I, final_day, total_inf, never_inf = sim.get_statistics()
             hist = sim.history.to_dict(orient='records')
             imm = [int(x) for x in sim.immunized_nodes]
             return jsonify({
@@ -2416,6 +2529,8 @@ def api_simulate_sir():
                 'peak_day': peak_day,
                 'peak_infected': peak_I,
                 'final_day': final_day,
+                'total_infected': total_inf,
+                'never_infected': never_inf,
                 'history': hist,
                 'output_directory': sim.results_dir,
                 'immunized_node_ids': imm,
@@ -2423,7 +2538,7 @@ def api_simulate_sir():
 
         sim = PureSIRSimulation(output_dir=str(folder))
         sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days, seed=seed)
-        peak_day, peak_I, final_day = sim.get_statistics()
+        peak_day, peak_I, final_day, total_inf, never_inf = sim.get_statistics()
         sim.save()
         hist = sim.history.to_dict(orient='records')
         return jsonify({
@@ -2431,6 +2546,8 @@ def api_simulate_sir():
             'peak_day': peak_day,
             'peak_infected': peak_I,
             'final_day': final_day,
+            'total_infected': total_inf,
+            'never_infected': never_inf,
             'history': hist,
             'output_directory': sim.results_dir,
         })
@@ -2467,7 +2584,7 @@ def api_sir_results():
         df = pd.read_csv(hist_path)
         users_csv = folder / 'users.csv'
         n_nodes = len(pd.read_csv(users_csv)) if users_csv.exists() else int(df['S'].iloc[0] + df['I'].iloc[0] + df['R'].iloc[0])
-        peak_day, peak_I, final_day = sir_metrics_from_history_df(df, n_nodes)
+        peak_day, peak_I, final_day, total_inf, never_inf = sir_metrics_from_history_df(df, n_nodes)
 
         payload = {
             'history': df.to_dict(orient='records'),
@@ -2475,6 +2592,8 @@ def api_sir_results():
                 'peak_day': peak_day,
                 'peak_infected': peak_I,
                 'final_day': final_day,
+                'total_infected': total_inf,
+                'never_infected': never_inf,
             },
             'output_directory': str(hist_path.parent.resolve()),
         }
@@ -2499,6 +2618,82 @@ def api_sir_results():
     except Exception as e:
         logger.error(f'Error in api_sir_results: {e}')
         return jsonify({'error': str(e)}), 500
+
+
+def _sir_export_pdf_response(
+    folder_label: str,
+    pure: Optional[dict],
+    dynamic_runs: list,
+    lang: str,
+    recommendations: Optional[dict] = None,
+):
+    if not pure and not dynamic_runs:
+        return jsonify({'error': 'Chưa có kết quả mô phỏng để xuất.'}), 400
+    pdf_bytes = build_sir_comparison_pdf_bytes(
+        output_folder=folder_label,
+        pure=pure,
+        dynamic_runs=dynamic_runs,
+        lang=lang,
+        recommendations=recommendations,
+    )
+    stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    safe_name = ''.join(c if c.isalnum() or c in '-_' else '_' for c in folder_label)[:80]
+    filename = f'sir_bao_cao_{safe_name}_{stamp}.pdf'
+    return send_file(
+        BytesIO(pdf_bytes),
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+def _handle_sir_export_pdf(payload: Optional[dict] = None, *, query_output_dir: str = '', query_lang: str = '') -> object:
+    """Tạo PDF từ payload JSON (phiên làm việc) và/hoặc file trên đĩa."""
+    data = payload if payload is not None else {}
+    lang = (query_lang or data.get('lang') or 'vi').strip().lower()
+    if lang not in ('vi', 'en'):
+        lang = 'vi'
+
+    output_dir = (query_output_dir or data.get('output_folder') or data.get('output_dir') or '').strip()
+    folder_path = resolve_output_folder(output_dir) if output_dir else get_latest_output_dir()
+    if folder_path is None or not folder_path.exists():
+        return jsonify({'error': 'Không tìm thấy thư mục output'}), 404
+
+    disk_pure, disk_runs = _load_sir_export_payload_from_folder(folder_path)
+    pure, dynamic_runs = _merge_export_runs(
+        data.get('pure'),
+        data.get('dynamic_runs'),
+        disk_pure,
+        disk_runs,
+    )
+
+    recommendations = None
+    try:
+        recommendations = build_intervention_recommendations(folder_path)
+    except Exception as e:
+        logger.warning('PDF: không tải được đề xuất can thiệp: %s', e)
+
+    return _sir_export_pdf_response(
+        folder_path.name, pure, dynamic_runs, lang, recommendations=recommendations,
+    )
+
+
+@app.route('/api/sir-export-pdf', methods=['GET', 'POST'])
+@app.route('/api/sir_export_pdf', methods=['GET', 'POST'])
+def api_sir_export_pdf():
+    """Xuất PDF: đồ thị so sánh I(t) + bảng chỉ số."""
+    try:
+        payload = request.get_json(silent=True) if request.method == 'POST' else {}
+        if payload is None:
+            payload = {}
+        return _handle_sir_export_pdf(
+            payload,
+            query_output_dir=(request.args.get('output_dir') or '').strip(),
+            query_lang=(request.args.get('lang') or '').strip(),
+        )
+    except Exception as e:
+        logger.exception('api_sir_export_pdf failed')
+        return jsonify({'error': f'Không tạo được PDF: {str(e)}'}), 500
 
 
 @app.route('/api/sir-saved-runs', methods=['GET'])
@@ -2533,6 +2728,8 @@ def empty_intervention_recommendations() -> dict:
             'peak_day': None,
             'peak_infected': None,
             'final_day': None,
+            'total_infected': None,
+            'never_infected': None,
             'node_ids': [],
             'intervened_nodes': [],
         }
@@ -2767,8 +2964,10 @@ def api_upload_data():
         return jsonify({'error': f'Lỗi xử lý file: {str(e)}'}), 500
 
 
-@app.route('/<path:path>')
+@app.route('/<path:path>', methods=['GET', 'HEAD'])
 def static_files(path):
+    if path.startswith('api/'):
+        return jsonify({'error': 'API không hỗ trợ phương thức này hoặc cần khởi động lại server.'}), 404
     return send_from_directory(str(BASE_DIR), path)
 
 

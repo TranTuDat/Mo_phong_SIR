@@ -154,11 +154,27 @@ body[data-mau-page="simulation"] #sir-chart-tab.result-tab-content {
   overflow: hidden;
 }
 
+body[data-mau-page="simulation"] #sir-comparison-tab.result-tab-content {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 body[data-mau-page="simulation"] .sim-chart-wrap,
 body[data-mau-page="simulation"] .sim-chart-wrap.sir-chart-tall {
   flex: 1;
   min-height: 0;
   height: auto;
+}
+
+body[data-mau-page="simulation"] #sir-comparison-tab .sir-cmp-chart-wrap {
+  flex: 0 0 auto;
+  min-height: clamp(480px, 72vh, 920px);
+  height: clamp(480px, 72vh, 920px);
+}
+
+body[data-mau-page="simulation"] #sir-comparison-tab .sir-cmp-table-scroll {
+  flex: 0 0 auto;
+  max-height: none;
 }
 
 body[data-mau-page="simulation"] .mau-form-group {
