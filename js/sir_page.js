@@ -29,6 +29,30 @@
     return r.json();
   }
 
+  function getActiveOutputDir() {
+    return window.MauShell?.getActiveOutputDir?.()?.trim() || '';
+  }
+
+  /** Bộ dữ liệu đang chọn (localStorage) hoặc từ /api/summary — dùng cho POST mô phỏng. */
+  async function resolveSimulationOutputDir() {
+    const stored = getActiveOutputDir();
+    if (stored) return stored;
+    const summary = await fetchJson('/api/summary').catch(() => null);
+    return summary?.output_folder || '';
+  }
+
+  async function simulationRequestBody(extra) {
+    const output_dir = await resolveSimulationOutputDir();
+    if (!output_dir) {
+      throw new Error(
+        getLang() === 'en'
+          ? 'No dataset selected. Open «Input data» and generate or pick an output folder.'
+          : 'Chưa chọn bộ dữ liệu. Mở «Nhập dữ liệu» để tạo mới hoặc chọn output có sẵn.'
+      );
+    }
+    return { output_dir, ...extra };
+  }
+
   async function loadSidebarSummary() {
     try {
       const data = await fetchJson('/api/summary');
@@ -821,14 +845,16 @@
       const response = await fetch('/api/simulate-sir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'pure',
-          transmission_rate: transmission,
-          recovery_rate: recovery,
-          days,
-          seed,
-          ...misinfoPayloadExtra(),
-        }),
+        body: JSON.stringify(
+          await simulationRequestBody({
+            model: 'pure',
+            transmission_rate: transmission,
+            recovery_rate: recovery,
+            days,
+            seed,
+            ...misinfoPayloadExtra(),
+          })
+        ),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Lỗi mô phỏng');
@@ -841,7 +867,13 @@
       });
       displayPureResults(data);
       updateReportButton();
-      showSimStatus(t('msgs.donePure'), 'success');
+      const nodeHint =
+        data.nodes != null
+          ? getLang() === 'en'
+            ? ` Dataset: ${data.nodes} nodes.`
+            : ` Mạng: ${data.nodes} nút.`
+          : '';
+      showSimStatus(t('msgs.donePure') + nodeHint, 'success');
     } catch (error) {
       showSimStatus('Lỗi: ' + error.message, 'error');
     } finally {
@@ -878,17 +910,19 @@
       const response = await fetch('/api/simulate-sir', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'dynamic',
-          transmission_rate: transmission,
-          recovery_rate: recovery,
-          days,
-          top_k: topK,
-          seed,
-          strategy,
-          intervention_day: interventionDay,
-          ...misinfoPayloadExtra(),
-        }),
+        body: JSON.stringify(
+          await simulationRequestBody({
+            model: 'dynamic',
+            transmission_rate: transmission,
+            recovery_rate: recovery,
+            days,
+            top_k: topK,
+            seed,
+            strategy,
+            intervention_day: interventionDay,
+            ...misinfoPayloadExtra(),
+          })
+        ),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Lỗi mô phỏng');
@@ -910,7 +944,13 @@
         drawSirComparisonChart();
         updateComparisonTableSim();
       }
-      showSimStatus(t('msgs.doneDyn'), 'success');
+      const nodeHint =
+        data.nodes != null
+          ? getLang() === 'en'
+            ? ` Dataset: ${data.nodes} nodes.`
+            : ` Mạng: ${data.nodes} nút.`
+          : '';
+      showSimStatus(t('msgs.doneDyn') + nodeHint, 'success');
     } catch (error) {
       showSimStatus('Lỗi: ' + error.message, 'error');
     } finally {

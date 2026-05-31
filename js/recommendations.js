@@ -31,13 +31,21 @@
   };
 
   function t(key, vars) {
-    let s = window.I18N && window.I18N.t ? window.I18N.t(key) : VI[key] || key;
-    if (vars) {
+    const substitute = (text) => {
+      if (!vars || typeof text !== 'string') return text;
+      let s = text;
       Object.keys(vars).forEach((k) => {
         s = s.replace(new RegExp(`\\{${k}\\}`, 'g'), String(vars[k]));
       });
+      return s;
+    };
+
+    if (window.I18N && window.I18N.t) {
+      const fromI18n = window.I18N.t(key, vars);
+      if (fromI18n !== key) return fromI18n;
     }
-    return s;
+
+    return substitute(VI[key] || key);
   }
 
   function strategyLabel(key) {
@@ -334,6 +342,7 @@
     window.onSharedDataReady = () => loadAnalysis();
     window.MauShell?.init({ page: 'recommendations', onDataReady: loadAnalysis });
     document.getElementById('btnAnalyze')?.addEventListener('click', loadAnalysis);
+    window.addEventListener('app:langchange', () => loadAnalysis());
     loadAnalysis();
   }
 

@@ -68,6 +68,12 @@
     return x.toLocaleString('vi-VN');
   }
 
+  function outputFolderNameFromApi(value) {
+    const s = String(value || '').trim();
+    if (!s) return '';
+    return s.replace(/\\/g, '/').split('/').filter(Boolean).pop() || s;
+  }
+
   function formatDisplayDate(raw) {
     if (!raw) return null;
     const s = String(raw).trim();
@@ -98,11 +104,13 @@
         relationship_prob: parseFloat(document.getElementById('relationshipProb').value),
         seed: parseInt(document.getElementById('randomSeed').value, 10),
       };
-      await fetchJson('/api/run-generator', {
+      const data = await fetchJson('/api/run-generator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      const folderName = outputFolderNameFromApi(data.output_folder);
+      if (folderName) setActiveOutputDir(folderName);
       closeModal();
       toast('Tạo dữ liệu thành công.');
       await refreshSideStats();
@@ -127,7 +135,9 @@
     const fd = new FormData();
     fd.append('file', file);
     try {
-      await fetchJson('/api/upload-data', { method: 'POST', body: fd });
+      const data = await fetchJson('/api/upload-data', { method: 'POST', body: fd });
+      const folderName = outputFolderNameFromApi(data.output_folder);
+      if (folderName) setActiveOutputDir(folderName);
       closeModal();
       toast('Tải lên thành công.');
       await refreshSideStats();

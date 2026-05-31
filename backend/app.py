@@ -2855,6 +2855,16 @@ def api_simulate_sir():
             graph = create_graph(users, relationships)
             _cached_graph = graph
             _cached_output = folder
+        n_nodes = int(graph.number_of_nodes())
+        n_edges = int(graph.number_of_edges())
+        logger.info(
+            'simulate-sir: dataset=%s nodes=%s edges=%s model=%s requested=%s',
+            folder.name,
+            n_nodes,
+            n_edges,
+            model,
+            payload.get('output_dir') or '(latest)',
+        )
         transmission_rate = float(payload.get('transmission_rate', 0.3))
         recovery_rate = float(payload.get('recovery_rate', 0.1))
         days = int(payload.get('days', 300))
@@ -2892,6 +2902,9 @@ def api_simulate_sir():
             _recommendations_cache.pop(str(folder.resolve()), None)
             return jsonify({
                 'model': 'dynamic',
+                'output_folder': folder.name,
+                'nodes': n_nodes,
+                'edges': n_edges,
                 'strategy': sim.strategy,
                 'top_k': sim.top_k,
                 'intervention_day': sim.intervention_day,
@@ -2930,6 +2943,9 @@ def api_simulate_sir():
         _recommendations_cache.pop(str(folder.resolve()), None)
         return jsonify({
             'model': 'pure',
+            'output_folder': folder.name,
+            'nodes': n_nodes,
+            'edges': n_edges,
             'misinfo_source_mode': getattr(sim, 'misinfo_source_mode', misinfo_source_mode),
             'misinfo_source_node_ids': init_ids,
             'misinfo_source_nodes': init_detail,
