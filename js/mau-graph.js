@@ -1,4 +1,4 @@
-/* Canvas graph — from Mau.html */
+/* Canvas graph */
 (function (global) {
 // Advanced Force-Directed Graph with D3-style physics
     const canvas = document.getElementById('networkCanvas');

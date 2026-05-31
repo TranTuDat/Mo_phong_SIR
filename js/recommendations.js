@@ -6,6 +6,7 @@
     betweenness: { vi: 'Betweenness', sub: 'Trung gian (cầu nối)', en: 'Betweenness' },
     degree: { vi: 'Degree', sub: 'Bậc cao (kết nối nhiều)', en: 'Degree' },
     eigenvector: { vi: 'Eigenvector', sub: 'Ảnh hưởng lan truyền', en: 'Eigenvector' },
+    pagerank: { vi: 'PageRank', sub: 'Ảnh hưởng lan truyền (PR)', en: 'PageRank' },
   };
 
   function getLang() {
@@ -55,7 +56,8 @@
   }
 
   async function fetchJson(url) {
-    const r = await fetch(url, { cache: 'no-store' });
+    const fixed = window.MauShell?.withOutputDir ? window.MauShell.withOutputDir(url) : url;
+    const r = await fetch(fixed, { cache: 'no-store' });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
     return data;

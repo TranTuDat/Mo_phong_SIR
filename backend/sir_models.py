@@ -9,8 +9,19 @@ import random
 import logging
 from pathlib import Path
 
+from .centrality_scores import (
+    CENTRALITY_STRATEGIES,
+    compute_centrality_scores,
+    misinfo_source_labels,
+    normalize_dynamic_strategy,
+    normalize_misinfo_mode,
+    pick_top_nodes_by_score,
+)
 from .deploy_env import betweenness_sample_k
-from .sir_sim_paths import dynamic_dataset_subdir_fs, pure_dataset_subdir_fs
+from .sir_sim_paths import (
+    dynamic_dataset_subdir_fs,
+    pure_dataset_subdir_fs,
+)
 
 # Cấu hình logging
 logging.basicConfig(
@@ -61,6 +72,27 @@ def sir_epidemic_totals_from_history(
     return total, never
 
 
+def _drop_invalid_relationship_rows(
+    relationships: pd.DataFrame, source_col: str, target_col: str
+) -> pd.DataFrame:
+    rels = relationships.copy()
+    rels[source_col] = pd.to_numeric(rels[source_col], errors='coerce')
+    rels[target_col] = pd.to_numeric(rels[target_col], errors='coerce')
+    before = len(rels)
+    rels = rels.dropna(subset=[source_col, target_col], how='any')
+    dropped = before - len(rels)
+    if dropped:
+        logger.warning(
+            'relationships.csv: bỏ %s dòng không hợp lệ (thiếu %s/%s)',
+            dropped,
+            source_col,
+            target_col,
+        )
+    if rels.empty:
+        raise ValueError('relationships.csv không còn cạnh hợp lệ sau khi lọc')
+    return rels
+
+
 def _discover_dataset_dirs() -> list[Path]:
     """Các thư mục output_* / output_uploaded_* trong outputs/ và (legacy) root repo."""
     out = _REPO_ROOT / 'outputs'
@@ -86,7 +118,14 @@ class PureSIRSimulation:
         results_dir (str): Thư mục lưu kết quả
     """
     
-    def __init__(self, output_dir: str = None):
+    def __init__(
+        self,
+        output_dir: str = None,
+        *,
+        graph: nx.Graph | None = None,
+        users: pd.DataFrame | None = None,
+        relationships: pd.DataFrame | None = None,
+    ):
         """
         Khởi tạo mô phỏng SIR
         
@@ -98,13 +137,14 @@ class PureSIRSimulation:
         """
         self.output_dir = self._find_output_dir(output_dir)
 
-        self.graph = None
-        self.users = None
-        self.relationships = None
+        self.graph = graph
+        self.users = users
+        self.relationships = relationships
         self.history = None
         self.results_dir = None
 
-        self._load_data()
+        if self.graph is None:
+            self._load_data()
 
     # ========================
     # LOAD DATA
@@ -150,20 +190,23 @@ class PureSIRSimulation:
             user_id_col = 'user_id' if 'user_id' in self.users.columns else 'id'
             source_col = 'user1_id' if 'user1_id' in self.relationships.columns else 'source'
             target_col = 'user2_id' if 'user2_id' in self.relationships.columns else 'target'
+            self.relationships = _drop_invalid_relationship_rows(
+                self.relationships, source_col, target_col
+            )
 
             self.graph = nx.Graph()
 
-            for _, user in self.users.iterrows():
-                self.graph.add_node(int(user[user_id_col]))
-
-            for _, rel in self.relationships.iterrows():
-                self.graph.add_edge(int(rel[source_col]), int(rel[target_col]))
+            self.graph.add_nodes_from(self.users[user_id_col].astype(np.int64, copy=False))
+            self.graph.add_edges_from(
+                zip(
+                    self.relationships[source_col].astype(np.int64),
+                    self.relationships[target_col].astype(np.int64),
+                )
+            )
 
             logger.info(f"✓ Graph: {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges\n")
 
-            self.results_dir = pure_dataset_subdir_fs(self.output_dir)
-            os.makedirs(self.results_dir, exist_ok=True)
-            logger.info(f"✓ Results directory: {self.results_dir}\n")
+            self.results_dir = None
         except FileNotFoundError as e:
             logger.error(f"Lỗi tải dữ liệu: {e}")
             raise
@@ -174,8 +217,16 @@ class PureSIRSimulation:
     # ========================
     # SIR SIMULATION
     # ========================
-    def simulate(self, transmission_rate: float = 0.3, recovery_rate: float = 0.1, 
-                 max_days: int = 300, seed: int = 42) -> None:
+    def simulate(
+        self,
+        transmission_rate: float = 0.3,
+        recovery_rate: float = 0.1,
+        max_days: int = 300,
+        seed: int = 42,
+        *,
+        misinfo_source_mode: str = 'random',
+        num_initial_sources: int = 1,
+    ) -> None:
         """
         Mô phỏng mô hình SIR
         
@@ -199,20 +250,34 @@ class PureSIRSimulation:
             random.seed(seed)
             np.random.seed(seed)
 
+            misinfo_mode = normalize_misinfo_mode(misinfo_source_mode)
+            self.results_dir = pure_dataset_subdir_fs(self.output_dir, misinfo_mode)
+            os.makedirs(self.results_dir, exist_ok=True)
+            logger.info(f"✓ Results directory: {self.results_dir}\n")
+
             n = self.graph.number_of_nodes()
             node_list = list(self.graph.nodes())
             idx_of = {node_list[i]: i for i in range(n)}
 
             # 0=S, 1=I, 2=R
             state = np.zeros(n, dtype=int)
-
-            # chọn node nhiễm ban đầu
-            init_idx = random.randint(0, n - 1)
-            state[init_idx] = 1
+            init_nodes = pick_top_nodes_by_score(
+                self.graph, misinfo_mode, num_initial_sources, seed=seed
+            )
+            init_indices = [idx_of[nid] for nid in init_nodes]
+            for init_idx in init_indices:
+                state[init_idx] = 1
             ever_infected = np.zeros(n, dtype=bool)
-            ever_infected[init_idx] = True
+            for init_idx in init_indices:
+                ever_infected[init_idx] = True
 
-            logger.info(f"🦠 Node nhiễm ban đầu: {node_list[init_idx]}")
+            self.misinfo_source_mode = misinfo_mode
+            self.initial_infected_nodes = list(init_nodes)
+            logger.info(
+                "🦠 Nguồn thông tin xấu (%s): %s",
+                misinfo_mode,
+                ', '.join(str(node_list[i]) for i in init_indices),
+            )
 
             history = {
                 'day': [0],
@@ -399,6 +464,18 @@ class PureSIRSimulation:
             path = os.path.join(self.results_dir, "sir_history.csv")
             self.history.to_csv(path, index=False)
             logger.info(f"✓ Lưu history: {path}")
+            meta_path = os.path.join(self.results_dir, "misinfo_source.json")
+            with open(meta_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "misinfo_source_mode": getattr(self, "misinfo_source_mode", "random"),
+                        "node_ids": [int(x) for x in getattr(self, "initial_infected_nodes", [])],
+                    },
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            logger.info(f"✓ Lưu nguồn phát: {meta_path}")
         except OSError as e:
             logger.error(f"Lỗi lưu dữ liệu: {e}")
             raise
@@ -427,6 +504,11 @@ class SIRDynamicImmunization:
         top_k: int = 10,
         strategy: str = "betweenness",
         intervention_day: int = 1,
+        misinfo_source_mode: str = "random",
+        *,
+        graph: nx.Graph | None = None,
+        users: pd.DataFrame | None = None,
+        relationships: pd.DataFrame | None = None,
     ):
         """
         Khởi tạo mô phỏng SIR với miễn nhiễm động
@@ -434,7 +516,7 @@ class SIRDynamicImmunization:
         Args:
             output_dir (str): Thư mục chứa dữ liệu (nếu None tìm tự động)
             top_k (int): Số node hàng đầu để miễn nhiễm (mặc định 10)
-            strategy (str): Chiến lược chọn node để miễn nhiễm: "betweenness" | "degree" | "eigenvector"
+            strategy (str): Chiến lược chọn node để miễn nhiễm: "random" | "betweenness" | "degree" | "eigenvector" | "pagerank"
             intervention_day (int): Ngày mô phỏng (1-based) thực hiện miễn nhiễm top-k (mặc định 1)
             
         Raises:
@@ -444,9 +526,7 @@ class SIRDynamicImmunization:
         if top_k <= 0:
             raise ValueError("top_k phải > 0")
 
-        strategy = (strategy or "betweenness").strip().lower()
-        if strategy not in ("betweenness", "degree", "eigenvector"):
-            raise ValueError('strategy phải là "betweenness", "degree" hoặc "eigenvector"')
+        strategy = normalize_dynamic_strategy(strategy or "betweenness")
 
         intervention_day = int(intervention_day)
         if intervention_day < 1:
@@ -456,15 +536,26 @@ class SIRDynamicImmunization:
         self.top_k = top_k
         self.strategy = strategy
         self.intervention_day = intervention_day
+        self.misinfo_source_mode = normalize_misinfo_mode(misinfo_source_mode)
 
-        self.graph = None
-        self.users = None
-        self.relationships = None
+        self.graph = graph
+        self.users = users
+        self.relationships = relationships
         self.history = None
         self.results_dir = None
         self.immunized_nodes = []
 
-        self._load_data()
+        if self.graph is None:
+            self._load_data()
+        else:
+            self.results_dir = dynamic_dataset_subdir_fs(
+                self.output_dir,
+                self.strategy,
+                self.intervention_day,
+                self.top_k,
+                self.misinfo_source_mode,
+            )
+            os.makedirs(self.results_dir, exist_ok=True)
         logger.info(
             f"Khởi tạo SIRDynamicImmunization: top_k={top_k}, strategy={strategy}, "
             f"intervention_day={self.intervention_day}"
@@ -514,19 +605,28 @@ class SIRDynamicImmunization:
             user_id_col = 'user_id' if 'user_id' in self.users.columns else 'id'
             source_col = 'user1_id' if 'user1_id' in self.relationships.columns else 'source'
             target_col = 'user2_id' if 'user2_id' in self.relationships.columns else 'target'
+            self.relationships = _drop_invalid_relationship_rows(
+                self.relationships, source_col, target_col
+            )
 
             self.graph = nx.Graph()
 
-            for _, u in self.users.iterrows():
-                self.graph.add_node(int(u[user_id_col]))
-
-            for _, r in self.relationships.iterrows():
-                self.graph.add_edge(int(r[source_col]), int(r[target_col]))
+            self.graph.add_nodes_from(self.users[user_id_col].astype(np.int64, copy=False))
+            self.graph.add_edges_from(
+                zip(
+                    self.relationships[source_col].astype(np.int64),
+                    self.relationships[target_col].astype(np.int64),
+                )
+            )
 
             logger.info(f"✓ Graph: {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges\n")
 
             self.results_dir = dynamic_dataset_subdir_fs(
-                self.output_dir, self.strategy, self.intervention_day, self.top_k
+                self.output_dir,
+                self.strategy,
+                self.intervention_day,
+                self.top_k,
+                self.misinfo_source_mode,
             )
             os.makedirs(self.results_dir, exist_ok=True)
             logger.info(f"✓ Results directory: {self.results_dir}\n")
@@ -542,7 +642,7 @@ class SIRDynamicImmunization:
     # =========================
     def get_top_nodes(self) -> list:
         """
-        Chọn top_k node theo chiến lược (betweenness, degree hoặc eigenvector)
+        Chọn top_k node theo chiến lược (random hoặc centrality)
         
         Returns:
             list: Danh sách top node
@@ -554,41 +654,19 @@ class SIRDynamicImmunization:
             raise ValueError(f"top_k ({self.top_k}) lớn hơn số node ({self.graph.number_of_nodes()})")
         
         try:
-            if self.strategy == "degree":
-                logger.info("Tính toán degree (bậc) ...")
-                score = {int(n): int(d) for n, d in self.graph.degree()}
-                key_name = "deg"
-            elif self.strategy == "eigenvector":
-                logger.info("Tính toán eigenvector centrality ...")
-                try:
-                    ev = nx.eigenvector_centrality(self.graph, max_iter=1000)
-                    score = {int(n): float(v) for n, v in ev.items()}
-                except Exception as ex:
-                    logger.warning(f"Eigenvector thất bại ({ex}), dùng degree làm proxy.")
-                    score = {int(n): int(d) for n, d in self.graph.degree()}
-                key_name = "eig"
+            logger.info("Tính chỉ số can thiệp: %s ...", self.strategy)
+            if self.strategy == "random":
+                top_nodes = random.sample(list(self.graph.nodes()), self.top_k)
+                score = {int(node): 0.0 for node in top_nodes}
             else:
-                n = self.graph.number_of_nodes()
-                k_bet = betweenness_sample_k(n)
-                if k_bet is None:
-                    logger.info("Tính toán betweenness centrality ...")
-                    bet = nx.betweenness_centrality(self.graph)
-                else:
-                    logger.info("Betweenness xấp xỉ (k=%s) cho %s nút ...", k_bet, n)
-                    bet = nx.betweenness_centrality(self.graph, k=k_bet)
-                score = {int(n): float(v) for n, v in bet.items()}
-                key_name = "bet"
-
-            ranked = sorted(score.items(), key=lambda kv: kv[1], reverse=True)
-            top_nodes = [node for node, _ in ranked[: self.top_k]]
+                score = compute_centrality_scores(self.graph, self.strategy)
+                ranked = sorted(score.items(), key=lambda kv: kv[1], reverse=True)
+                top_nodes = [node for node, _ in ranked[: self.top_k]]
 
             logger.info("\n💉 Top node được chuyển sang R:")
             for i, node in enumerate(top_nodes, 1):
                 val = score.get(int(node), 0)
-                if key_name in ("bet", "eig"):
-                    logger.info(f"{i}. Node {node} ({key_name}={val:.6f})")
-                else:
-                    logger.info(f"{i}. Node {node} ({key_name}={val})")
+                logger.info(f"{i}. Node {node} ({self.strategy}={val:.6f})")
 
             return top_nodes
         except Exception as e:
@@ -597,8 +675,16 @@ class SIRDynamicImmunization:
     # =========================
     # SIR + IMMUNIZATION
     # =========================
-    def simulate(self, transmission_rate: float = 0.3, recovery_rate: float = 0.1, 
-                 days: int = 200, seed: int = 42) -> int:
+    def simulate(
+        self,
+        transmission_rate: float = 0.3,
+        recovery_rate: float = 0.1,
+        days: int = 200,
+        seed: int = 42,
+        *,
+        misinfo_source_mode: str = 'random',
+        num_initial_sources: int = 1,
+    ) -> int:
         """
         Mô phỏng mô hình SIR với chiến lược miễn nhiễm động
         
@@ -638,13 +724,25 @@ class SIRDynamicImmunization:
 
             state = np.zeros(n, dtype=int)  # 0=S,1=I,2=R
 
-            # chọn 1 node nhiễm ban đầu
-            init_idx = random.randint(0, n - 1)
-            state[init_idx] = 1
+            misinfo_mode = normalize_misinfo_mode(
+                misinfo_source_mode or self.misinfo_source_mode
+            )
+            self.misinfo_source_mode = misinfo_mode
+            init_nodes = pick_top_nodes_by_score(
+                self.graph, misinfo_mode, num_initial_sources, seed=seed
+            )
+            init_indices = [idx_of[nid] for nid in init_nodes]
+            for init_idx in init_indices:
+                state[init_idx] = 1
             ever_infected = np.zeros(n, dtype=bool)
-            ever_infected[init_idx] = True
-
-            logger.info(f"🦠 Node nhiễm ban đầu: {node_list[init_idx]}")
+            for init_idx in init_indices:
+                ever_infected[init_idx] = True
+            self.initial_infected_nodes = list(init_nodes)
+            logger.info(
+                "🦠 Nguồn thông tin xấu (%s): %s",
+                misinfo_mode,
+                ', '.join(str(node_list[i]) for i in init_indices),
+            )
 
             history = {
                 'day': [0],
@@ -692,7 +790,7 @@ class SIRDynamicImmunization:
                     immunized = True
                     immune_day = day
 
-                    logger.info(f"\n⚡ Đã miễn nhiễm {self.top_k} node tại ngày {day}\n")
+                    logger.info(f"\nĐã miễn nhiễm {self.top_k} node tại ngày {day}\n")
 
                 # =====================
                 # GHI LỊCH SỬ
@@ -731,7 +829,24 @@ class SIRDynamicImmunization:
                         'seed': seed,
                         'intervention_day': self.intervention_day,
                         'immune_day': immune_day,
+                        'misinfo_source_mode': getattr(self, 'misinfo_source_mode', 'random'),
+                        'misinfo_source_node_ids': [
+                            int(x) for x in getattr(self, 'initial_infected_nodes', [])
+                        ],
                         'node_ids': [int(x) for x in self.immunized_nodes],
+                    },
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            mis_path = os.path.join(self.results_dir, 'misinfo_source.json')
+            with open(mis_path, 'w', encoding='utf-8') as f:
+                json.dump(
+                    {
+                        'misinfo_source_mode': getattr(self, 'misinfo_source_mode', 'random'),
+                        'node_ids': [
+                            int(x) for x in getattr(self, 'initial_infected_nodes', [])
+                        ],
                     },
                     f,
                     ensure_ascii=False,

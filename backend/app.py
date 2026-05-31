@@ -14,12 +14,19 @@ import datetime
 import logging
 import tempfile
 import shutil
+import heapq
 import math
 import random
+import re
 
 from .deploy_env import max_users_limit, on_render_deploy, skip_heavy_viz, use_fast_graph_algorithms
 from .Tao_nguoi_dung_va_do_thi import SocialNetworkGenerator, OUTPUT_ROOT
 from .sir_models import PureSIRSimulation, SIRDynamicImmunization, epidemic_final_day_from_history
+from .centrality_scores import (
+    DYNAMIC_INTERVENTION_STRATEGIES,
+    misinfo_source_labels,
+    normalize_misinfo_mode,
+)
 from .sir_pdf_report import build_sir_comparison_pdf_bytes
 from .sir_sim_paths import (
     clear_dataset_sir_results,
@@ -27,8 +34,10 @@ from .sir_sim_paths import (
     find_dynamic_sir_history_csv,
     find_pure_sir_history_csv,
     list_saved_dynamic_sir_runs,
+    list_saved_pure_sir_runs,
     read_immunized_node_ids,
 )
+from .graph_draw import layout_for_network_draw, normalize_positions_to_unit, test_style_canvas_radius
 from .graph_layout import (
     _repel_overlaps,
     cluster_focus_layout,
@@ -36,6 +45,14 @@ from .graph_layout import (
     polish_representative_layout,
     spring_or_circular,
 )
+from .upload_data import (
+    allowed_upload_filename,
+    detect_upload_kind,
+    prepare_edges_upload,
+    read_upload_table,
+)
+
+_DATASET_DIR_TS_RE = re.compile(r'_(\d{8})_(\d{6})$')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -92,26 +109,36 @@ CLUSTER_COLORS = [
     '#65a30d',
 ]
 
-DYNAMIC_STRATEGIES = ('betweenness', 'degree', 'eigenvector')
+DYNAMIC_STRATEGIES = tuple(sorted(DYNAMIC_INTERVENTION_STRATEGIES))
 GALAXY_MAX_NODES = 2000
 GALAXY_MAX_EDGES = 28000
+TEST_STYLE_MIN_NODES = 300
+TEST_STYLE_NODE_COLOR = '#60a5fa'
+TEST_STYLE_EDGE_COLOR = '#94a3b8'
 
 # Trọng số mặc định cho điểm nguy cơ (mỗi trọng số ∈ (0, 1); metrics đã là centrality 0–1).
-DEFAULT_RISK_WEIGHTS = {'betweenness': 0.4, 'degree': 0.35, 'eigenvector': 0.25}
+DEFAULT_RISK_WEIGHTS = {
+    'betweenness': 0.3,
+    'degree': 0.25,
+    'eigenvector': 0.25,
+    'pagerank': 0.2,
+}
 
 
 def raw_risk_score(
     betweenness: float,
     degree_centrality: float,
     eigenvector: float,
+    pagerank: float = 0.0,
     weights: Optional[dict] = None,
 ) -> float:
     """Tổng có trọng số trên chỉ số trung tâm [0, 1] (chưa scale theo mạng)."""
     w = weights or DEFAULT_RISK_WEIGHTS
     return (
-        float(betweenness or 0) * float(w.get('betweenness', 0.4))
-        + float(degree_centrality or 0) * float(w.get('degree', 0.35))
+        float(betweenness or 0) * float(w.get('betweenness', 0.3))
+        + float(degree_centrality or 0) * float(w.get('degree', 0.25))
         + float(eigenvector or 0) * float(w.get('eigenvector', 0.25))
+        + float(pagerank or 0) * float(w.get('pagerank', 0.2))
     )
 
 
@@ -136,6 +163,7 @@ def apply_normalized_risk_scores(rows: list, weights: Optional[dict] = None) -> 
             r.get('betweenness', 0),
             r.get('degree_metric', r.get('degree', 0)),
             r.get('eigenvector', 0),
+            r.get('pagerank', 0),
             weights,
         )
         for r in rows
@@ -155,14 +183,52 @@ def compute_risk_score(
     betweenness: float,
     degree_centrality: float,
     eigenvector: float,
+    pagerank: float = 0.0,
     weights: Optional[dict] = None,
 ) -> int:
     """Điểm thô ×100 (giữ tương thích); dashboard dùng apply_normalized_risk_scores."""
-    return int(round(100 * min(1.0, raw_risk_score(betweenness, degree_centrality, eigenvector, weights))))
+    return int(
+        round(
+            100
+            * min(
+                1.0,
+                raw_risk_score(
+                    betweenness, degree_centrality, eigenvector, pagerank, weights
+                ),
+            )
+        )
+    )
 
 _cached_graph = None
 _cached_payload_by_viz: dict[str, dict] = {}
 _cached_output = None
+_csv_data_cache: dict[str, tuple] = {}
+_recommendations_cache: dict[str, dict] = {}
+
+
+def _invalidate_graph_cache() -> None:
+    global _cached_graph, _cached_payload_by_viz, _cached_output
+    _cached_graph = None
+    _cached_payload_by_viz = {}
+    _cached_output = None
+    _csv_data_cache.clear()
+    _recommendations_cache.clear()
+
+
+def _dataset_csv_mtimes(folder: Path) -> tuple[float, float, float]:
+    users_csv = folder / 'users.csv'
+    rels_csv = folder / 'relationships.csv'
+    metrics_csv = folder / 'metrics.csv'
+    return (
+        users_csv.stat().st_mtime,
+        rels_csv.stat().st_mtime,
+        metrics_csv.stat().st_mtime,
+    )
+
+
+def _csv_row_count(path: Path) -> int:
+    with path.open('r', encoding='utf-8', errors='replace') as fh:
+        return max(0, sum(1 for _ in fh) - 1)
 
 
 def get_latest_output_dir() -> Optional[Path]:
@@ -209,6 +275,86 @@ def resolve_output_folder(output_dir: Optional[str]) -> Optional[Path]:
     return None
 
 
+def dataset_data_date(folder: Path) -> str:
+    """Ngày tạo bộ dữ liệu (YYYY-MM-DD) — từ tên thư mục output_*_YYYYMMDD_HHMMSS hoặc mtime."""
+    m = _DATASET_DIR_TS_RE.search(folder.name)
+    if m:
+        ymd = m.group(1)
+        return f'{ymd[0:4]}-{ymd[4:6]}-{ymd[6:8]}'
+    try:
+        return datetime.datetime.fromtimestamp(folder.stat().st_mtime).strftime('%Y-%m-%d')
+    except OSError:
+        return datetime.date.today().isoformat()
+
+
+def _strip_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out.columns = [str(c).strip().lstrip('\ufeff') for c in out.columns]
+    return out
+
+
+def _resolve_column(df: pd.DataFrame, *candidates: str) -> Optional[str]:
+    cols = set(df.columns)
+    lower = {c.lower(): c for c in df.columns}
+    for name in candidates:
+        if name in cols:
+            return name
+        hit = lower.get(name.lower())
+        if hit:
+            return hit
+    return None
+
+
+def normalize_users_df(users: pd.DataFrame) -> pd.DataFrame:
+    users = _strip_dataframe_columns(users)
+    id_col = _resolve_column(users, 'id', 'user_id', 'node_id')
+    if id_col is None:
+        raise ValueError(
+            f'users.csv thiếu cột id (hoặc user_id). Có: {", ".join(map(str, users.columns))}'
+        )
+    if id_col != 'id':
+        users = users.rename(columns={id_col: 'id'})
+    return users
+
+
+def normalize_relationships_df(relationships: pd.DataFrame) -> pd.DataFrame:
+    relationships = _strip_dataframe_columns(relationships)
+    source_col = _resolve_column(
+        relationships, 'source', 'user1_id', 'from', 'src', 'node1', 'u'
+    )
+    target_col = _resolve_column(
+        relationships, 'target', 'user2_id', 'to', 'dst', 'node2', 'v'
+    )
+    if source_col is None or target_col is None:
+        raise ValueError(
+            'relationships.csv thiếu cột nguồn/đích (source/target hoặc user1_id/user2_id). '
+            f'Có: {", ".join(map(str, relationships.columns))}'
+        )
+    rename = {}
+    if source_col != 'source':
+        rename[source_col] = 'source'
+    if target_col != 'target':
+        rename[target_col] = 'target'
+    if rename:
+        relationships = relationships.rename(columns=rename)
+
+    relationships['source'] = pd.to_numeric(relationships['source'], errors='coerce')
+    relationships['target'] = pd.to_numeric(relationships['target'], errors='coerce')
+    before = len(relationships)
+    relationships = relationships.dropna(subset=['source', 'target'], how='any')
+    dropped = before - len(relationships)
+    if dropped:
+        logger.warning(
+            'relationships.csv: bỏ %s dòng không hợp lệ (thiếu source/target hoặc rỗng)',
+            dropped,
+        )
+    if relationships.empty:
+        raise ValueError('relationships.csv không còn cạnh hợp lệ sau khi lọc')
+    relationships['source'] = relationships['source'].astype(np.int64)
+    relationships['target'] = relationships['target'].astype(np.int64)
+    return relationships
+
+
 def load_output_data(output_dir: Optional[str] = None):
     if output_dir:
         folder = resolve_output_folder(output_dir)
@@ -224,29 +370,60 @@ def load_output_data(output_dir: Optional[str] = None):
     if not users_csv.exists() or not rels_csv.exists() or not metrics_csv.exists():
         raise FileNotFoundError('File dữ liệu cần thiết không tồn tại trong output folder')
 
-    users = pd.read_csv(users_csv)
-    relationships = pd.read_csv(rels_csv)
-    metrics = pd.read_csv(metrics_csv)
+    cache_key = str(folder.resolve())
+    mtimes = _dataset_csv_mtimes(folder)
+    cached = _csv_data_cache.get(cache_key)
+    if cached is not None and cached[0] == mtimes:
+        return folder, cached[1], cached[2], cached[3]
 
-    # Normalize column names for compatibility
-    # Handle both generated data (user_id, user1_id, user2_id) and uploaded data (id, source, target)
-    if 'user_id' in users.columns:
-        # Generated data format
-        users = users.rename(columns={'user_id': 'id'})
-    if 'user1_id' in relationships.columns and 'user2_id' in relationships.columns:
-        # Generated data format
-        relationships = relationships.rename(columns={'user1_id': 'source', 'user2_id': 'target'})
+    users = normalize_users_df(pd.read_csv(users_csv))
+    relationships = normalize_relationships_df(pd.read_csv(rels_csv))
+    metrics = _strip_dataframe_columns(pd.read_csv(metrics_csv))
+    _csv_data_cache[cache_key] = (mtimes, users, relationships, metrics)
 
     return folder, users, relationships, metrics
 
 
 def create_graph(users: pd.DataFrame, relationships: pd.DataFrame) -> nx.Graph:
+    users = normalize_users_df(users)
+    relationships = normalize_relationships_df(relationships)
     graph = nx.Graph()
-    for _, user in users.iterrows():
-        graph.add_node(int(user['id']))
-    for _, row in relationships.iterrows():
-        graph.add_edge(int(row['source']), int(row['target']))
+    graph.add_nodes_from(users['id'].astype(np.int64, copy=False))
+    graph.add_edges_from(
+        zip(relationships['source'].to_numpy(), relationships['target'].to_numpy())
+    )
     return graph
+
+
+def build_dataset_summary(output_dir: Optional[str] = None) -> dict:
+    """Metadata dataset — không dựng layout / đồ thị (dùng cho /api/summary)."""
+    try:
+        folder, users, relationships, _metrics = load_output_data(output_dir)
+    except FileNotFoundError as e:
+        logger.warning('build_dataset_summary: %s', e)
+        p = empty_graph_payload()
+        return {
+            'ready': False,
+            'nodes': p['nodes'],
+            'edges': p['edges'],
+            'data_date': p['data_date'],
+            'status': p['status'],
+            'version': p['version'],
+            'timestamp': p['timestamp'],
+            'output_folder': None,
+            'hint': p['hint'],
+        }
+    return {
+        'ready': True,
+        'nodes': len(users),
+        'edges': len(relationships),
+        'data_date': dataset_data_date(folder),
+        'status': 'Dữ liệu đã sẵn sàng',
+        'version': '1.0.0',
+        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'output_folder': folder.name,
+        'hint': None,
+    }
 
 
 def _intervention_rank_key(run: dict) -> tuple:
@@ -283,16 +460,23 @@ def _intervention_run_row(
     strategy: str,
     intervention_day: int,
     top_k: int,
+    misinfo_source_mode: str = 'random',
 ) -> dict:
-    """Một kịch bản can thiệp (strategy + ngày + top_k)."""
-    hist_path = find_dynamic_sir_history_csv(folder, strategy, intervention_day, top_k)
+    """Một kịch bản can thiệp (nguồn xấu + strategy + ngày + top_k)."""
+    misinfo = normalize_misinfo_mode(misinfo_source_mode)
+    hist_path = find_dynamic_sir_history_csv(
+        folder, strategy, intervention_day, top_k, misinfo
+    )
     node_ids = (
-        read_immunized_node_ids(folder, strategy, intervention_day, top_k)
+        read_immunized_node_ids(
+            folder, strategy, intervention_day, top_k, misinfo
+        )
         if hist_path is not None
         else []
     )
     if hist_path is None:
         return {
+            'misinfo_source_mode': misinfo,
             'strategy': strategy,
             'intervention_day': intervention_day,
             'top_k': top_k,
@@ -310,6 +494,7 @@ def _intervention_run_row(
     detail = [{'id': nid, 'name': id_to_name.get(nid, str(nid))} for nid in node_ids]
     out_day = int(intervention_day)
     out_k = int(top_k)
+    out_misinfo = misinfo
     mj_path = hist_path.parent / 'immunized_nodes.json'
     if mj_path.is_file():
         try:
@@ -319,9 +504,12 @@ def _intervention_run_row(
                 out_day = int(mj['intervention_day'])
             if mj.get('top_k') is not None:
                 out_k = int(mj['top_k'])
+            if mj.get('misinfo_source_mode'):
+                out_misinfo = normalize_misinfo_mode(str(mj['misinfo_source_mode']))
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             pass
     return {
+        'misinfo_source_mode': out_misinfo,
         'strategy': strategy,
         'intervention_day': out_day,
         'top_k': out_k,
@@ -372,11 +560,16 @@ def _load_sir_export_payload_from_folder(folder: Path) -> tuple[Optional[dict], 
             item['strategy'],
             int(item['intervention_day']),
             int(item['top_k']),
+            item.get('misinfo_source_mode', 'random'),
         )
         if not row.get('available'):
             continue
         hist_path = find_dynamic_sir_history_csv(
-            folder, row['strategy'], row['intervention_day'], row['top_k']
+            folder,
+            row['strategy'],
+            row['intervention_day'],
+            row['top_k'],
+            row.get('misinfo_source_mode'),
         )
         if hist_path is None:
             continue
@@ -428,7 +621,25 @@ def _merge_export_runs(
     return pure, dynamic_list
 
 
+def _folder_analysis_token(folder: Path) -> tuple:
+    """Token thay đổi khi CSV gốc hoặc kết quả SIR trên đĩa đổi."""
+    parts: list = []
+    for name in ('users.csv', 'relationships.csv', 'metrics.csv'):
+        p = folder / name
+        parts.append(p.stat().st_mtime if p.is_file() else 0.0)
+    parts.append(len(list_saved_dynamic_sir_runs(folder)))
+    pure_hist = find_pure_sir_history_csv(folder)
+    parts.append(pure_hist.stat().st_mtime if pure_hist is not None else 0.0)
+    return tuple(parts)
+
+
 def build_intervention_recommendations(folder: Path) -> dict:
+    cache_key = str(folder.resolve())
+    token = _folder_analysis_token(folder)
+    hit = _recommendations_cache.get(cache_key)
+    if hit is not None and hit[0] == token:
+        return hit[1]
+
     users_csv = folder / 'users.csv'
     if not users_csv.exists():
         raise FileNotFoundError('Thiếu users.csv trong output')
@@ -463,6 +674,7 @@ def build_intervention_recommendations(folder: Path) -> dict:
                 item['strategy'],
                 int(item['intervention_day']),
                 int(item['top_k']),
+                item.get('misinfo_source_mode', 'random'),
             )
         )
 
@@ -524,13 +736,15 @@ def build_intervention_recommendations(folder: Path) -> dict:
         w = available_runs[0]
         winner = dict(w)
 
-    return {
+    result = {
         'output_folder': folder.name,
         'pure_sir': pure_metrics,
         'runs': runs,
         'strategies': strategy_summary,
         'winner': winner,
     }
+    _recommendations_cache[cache_key] = (token, result)
+    return result
 
 
 def _metrics_layout_frame(metrics: pd.DataFrame) -> pd.DataFrame:
@@ -542,6 +756,8 @@ def _metrics_layout_frame(metrics: pd.DataFrame) -> pd.DataFrame:
         ('betweenness_centrality', 'betweenness'),
         ('degree_centrality', 'degree'),
         ('eigenvector_centrality', 'eigenvector'),
+        ('pagerank_centrality', 'pagerank'),
+        ('pagerank', 'pagerank'),
     ):
         if old in m.columns and new not in m.columns:
             m = m.rename(columns={old: new})
@@ -553,13 +769,14 @@ def _layout_priority_nodes(metrics_norm: pd.DataFrame, k: int = 6) -> set[int]:
     if metrics_norm is None or len(metrics_norm) == 0 or 'id' not in metrics_norm.columns:
         return set()
     m = metrics_norm.copy()
-    for c in ('betweenness', 'degree', 'eigenvector'):
+    for c in ('betweenness', 'degree', 'eigenvector', 'pagerank'):
         if c not in m.columns:
             m[c] = 0.0
     m['_lw'] = (
         m['betweenness'].fillna(0) * 3.5
         + m['degree'].fillna(0) * 1.15
         + m['eigenvector'].fillna(0) * 1.35
+        + m['pagerank'].fillna(0) * 1.25
     )
     try:
         top = m.nlargest(min(k, len(m)), '_lw')
@@ -595,10 +812,11 @@ def _select_cluster_hubs(graph: nx.Graph, communities: list, metrics_norm: pd.Da
 
 def _centrality_maps(
     metrics_norm: Optional[pd.DataFrame], graph: nx.Graph
-) -> Tuple[dict[int, float], dict[int, float], dict[int, float]]:
-    """Betweenness / eigenvector từ metrics; degree từ đồ thị (đồng bộ với mạng thật)."""
+) -> Tuple[dict[int, float], dict[int, float], dict[int, float], dict[int, float]]:
+    """Betweenness / eigenvector / pagerank từ metrics; degree từ đồ thị."""
     bet: dict[int, float] = {}
     eig: dict[int, float] = {}
+    pr: dict[int, float] = {}
     if metrics_norm is not None and len(metrics_norm) and 'id' in metrics_norm.columns:
         for _, row in metrics_norm.iterrows():
             try:
@@ -609,8 +827,10 @@ def _centrality_maps(
                 bet[nid] = float(row.get('betweenness') or 0)
             if 'eigenvector' in metrics_norm.columns:
                 eig[nid] = float(row.get('eigenvector') or 0)
+            if 'pagerank' in metrics_norm.columns:
+                pr[nid] = float(row.get('pagerank') or 0)
     deg = {int(n): float(graph.degree(n)) for n in graph.nodes()}
-    return bet, eig, deg
+    return bet, eig, deg, pr
 
 
 def _parse_hex_color(hex_color: str) -> tuple[int, int, int]:
@@ -704,11 +924,19 @@ def _select_bridge_nodes(
     return {int(nid) for _, _, _, nid in scored[:limit]}
 
 
-def _viz_score(nid: int, bet: dict, eig: dict, deg: dict) -> float:
+def _viz_score(
+    nid: int,
+    bet: dict,
+    eig: dict,
+    deg: dict,
+    pr: Optional[dict] = None,
+) -> float:
+    pr = pr or {}
     return (
         bet.get(nid, 0.0) * 4.0
         + deg.get(nid, 0.0) * 1.15
         + eig.get(nid, 0.0) * 1.5
+        + pr.get(nid, 0.0) * 1.2
     )
 
 
@@ -806,7 +1034,7 @@ def _select_viz_node_sets(
     n = graph.number_of_nodes()
     if n == 0:
         return set(), set(), set()
-    bet, eig, deg = _centrality_maps(metrics_norm, graph)
+    bet, eig, deg, pr = _centrality_maps(metrics_norm, graph)
     node_to_comm: dict[int, int] = {}
     for ci, comm in enumerate(communities):
         for x in comm:
@@ -833,7 +1061,7 @@ def _select_viz_node_sets(
         nodes = [int(x) for x in comm if x in graph]
         if not nodes:
             continue
-        ranked = sorted(nodes, key=lambda nid: _viz_score(nid, bet, eig, deg), reverse=True)
+        ranked = sorted(nodes, key=lambda nid: _viz_score(nid, bet, eig, deg, pr), reverse=True)
         k = _reps_per_cluster(len(nodes))
         pick = ranked[:k]
         primary.update(pick)
@@ -873,12 +1101,12 @@ def _select_viz_node_sets(
         | {int(h) for h in hub_nodes if h in graph}
     )
     if len(primary) > max_total:
-        scored = sorted(primary, key=lambda nid: _viz_score(nid, bet, eig, deg), reverse=True)
+        scored = sorted(primary, key=lambda nid: _viz_score(nid, bet, eig, deg, pr), reverse=True)
         trimmed: Set[int] = set(scored[:max_total]) | preserved
         while len(trimmed) > max_total:
             pool = sorted(
                 (x for x in trimmed if x not in preserved),
-                key=lambda nid: _viz_score(nid, bet, eig, deg),
+                key=lambda nid: _viz_score(nid, bet, eig, deg, pr),
             )
             if not pool:
                 break
@@ -1625,6 +1853,7 @@ def build_node_payload(
     bridge_nodes: Optional[Set[int]] = None,
     galaxy_mode: bool = False,
     graph_node_count: int = 0,
+    test_style: bool = False,
 ):
     hub_nodes = hub_nodes or set()
     context_nodes = context_nodes or set()
@@ -1637,7 +1866,9 @@ def build_node_payload(
         'user_id': 'id',
         'betweenness_centrality': 'betweenness',
         'degree_centrality': 'degree',
-        'eigenvector_centrality': 'eigenvector'
+        'eigenvector_centrality': 'eigenvector',
+        'pagerank_centrality': 'pagerank',
+        'pagerank': 'pagerank',
     })
     
     # Rename users columns if needed
@@ -1659,10 +1890,13 @@ def build_node_payload(
     info = info.sort_values('betweenness', ascending=False)
     degree_map = dict(graph.degree())
 
+    if 'pagerank' not in info.columns:
+        info['pagerank'] = 0.0
     info['_viz_w'] = (
         info['betweenness'].fillna(0) * 4.0
         + info['degree'].fillna(0) * 1.25
         + info['eigenvector'].fillna(0) * 1.5
+        + info['pagerank'].fillna(0) * 1.2
     )
     if included_ids is not None:
         info = info[info['id'].isin(included_ids)]
@@ -1698,6 +1932,7 @@ def build_node_payload(
                 row.get('betweenness', 0) * 1800
                 + row.get('degree', 0) * 450
                 + row.get('eigenvector', 0) * 900
+                + row.get('pagerank', 0) * 800
             )
             if score >= 180:
                 risk = 'High'
@@ -1718,7 +1953,15 @@ def build_node_payload(
         is_bridge = node_id in bridge_nodes
         viz_tier = 'background'
         node_opacity = 0.65
-        if galaxy_mode:
+        if test_style:
+            viz_tier = 'background'
+            radius = test_style_canvas_radius(n_total)
+            node_opacity = 0.5 if n_total >= 2000 else 0.62
+            show_label = False
+            is_hub = False
+            is_bridge = False
+            is_context = False
+        elif galaxy_mode:
             if is_hub or node_id in prominent_ids:
                 viz_tier = 'hub'
                 is_hub = True
@@ -1741,15 +1984,16 @@ def build_node_payload(
             radius = max(4.0, min(9.0, 4.2 + w_norm * 4.5 + math.sqrt(max(0.0, deg)) * 0.22))
         is_spotlight = (not is_context) and (node_id in spotlight_ids)
 
-        show_label = bool(
-            not is_context
-            and (
-                (galaxy_mode and viz_tier == 'hub')
-                or (galaxy_mode and risk == 'High' and viz_tier != 'background')
-                or is_bridge
-                or (not galaxy_mode and (is_hub or is_bridge))
+        if not test_style:
+            show_label = bool(
+                not is_context
+                and (
+                    (galaxy_mode and viz_tier == 'hub')
+                    or (galaxy_mode and risk == 'High' and viz_tier != 'background')
+                    or is_bridge
+                    or (not galaxy_mode and (is_hub or is_bridge))
+                )
             )
-        )
         x_norm = float((pos[0] + 1) / 2)
         y_norm = float((pos[1] + 1) / 2)
 
@@ -1785,7 +2029,7 @@ def build_node_payload(
             'influence': round(float(w_norm), 4),
             'viz_tier': viz_tier,
             'opacity': round(float(node_opacity), 3),
-            'color': '#94a3b8',
+            'color': TEST_STYLE_NODE_COLOR if test_style else '#94a3b8',
         })
     return payload
 
@@ -1804,44 +2048,70 @@ def _nodes_metrics_rows(users: pd.DataFrame, metrics: pd.DataFrame, graph: nx.Gr
     if 'user_id' in u.columns:
         u = u.rename(columns={'user_id': 'id'})
     info = u.merge(m, on='id', how='left')
-    for c in ('betweenness', 'degree', 'eigenvector'):
+    for c in ('betweenness', 'degree', 'eigenvector', 'pagerank'):
         if c not in info.columns:
             info[c] = 0.0
-        info[c] = info[c].fillna(0.0)
+        info[c] = pd.to_numeric(info[c], errors='coerce').fillna(0.0)
+
+    info['id'] = info['id'].astype(np.int64)
     degree_map = dict(graph.degree())
-    bt_q75 = info['betweenness'].quantile(0.75)
-    deg_q70 = info['degree'].quantile(0.7)
-    out = []
-    for _, row in info.iterrows():
-        nid = int(row['id'])
-        deg_g = float(degree_map.get(nid, row.get('degree', 0) or 0))
-        bt = float(row.get('betweenness', 0) or 0)
-        ev = float(row.get('eigenvector', 0) or 0)
-        deg_c = float(row.get('degree', 0) or 0)
-        if 'risk' in row and pd.notna(row['risk']):
-            risk = str(row['risk'])
-        else:
-            risk = classify_risk_from_metrics(bt, deg_c, ev)
-        role = (
-            'Nút trung gian'
-            if bt >= bt_q75
-            else 'Nút lan truyền'
-            if deg_c >= deg_q70
-            else 'Quan sát viên'
+    info['degree_graph'] = info['id'].map(degree_map).fillna(info['degree']).astype(float)
+
+    bt = info['betweenness'].astype(float)
+    deg_c = info['degree'].astype(float)
+    ev = info['eigenvector'].astype(float)
+    pr = info['pagerank'].astype(float)
+    bt_q75 = float(bt.quantile(0.75))
+    deg_q70 = float(deg_c.quantile(0.7))
+
+    legacy_score = bt * 1800 + deg_c * 450 + ev * 900
+    computed_risk = np.where(
+        legacy_score >= 180,
+        'High',
+        np.where(legacy_score >= 95, 'Medium', np.where(legacy_score >= 40, 'Low', 'Unknown')),
+    )
+    if 'risk' in info.columns:
+        has_risk = info['risk'].notna()
+        risk_arr = np.where(has_risk, info['risk'].astype(str).to_numpy(), computed_risk)
+    else:
+        risk_arr = computed_risk
+
+    role_arr = np.where(
+        bt >= bt_q75,
+        'Nút trung gian',
+        np.where(deg_c >= deg_q70, 'Nút lan truyền', 'Quan sát viên'),
+    )
+    if 'name' in info.columns:
+        names = info['name'].fillna('').astype(str)
+        names = np.where(names != '', names, 'User ' + info['id'].astype(str))
+    else:
+        names = 'User ' + info['id'].astype(str)
+
+    out = [
+        {
+            'id': int(nid),
+            'name': str(nm),
+            'role': str(role),
+            'degree': float(deg_g),
+            'degree_metric': float(deg_m),
+            'betweenness': float(b),
+            'eigenvector': float(e),
+            'pagerank': float(p),
+            'risk': str(rk),
+            'risk_score': 0,
+        }
+        for nid, nm, role, deg_g, deg_m, b, e, p, rk in zip(
+            info['id'].to_numpy(),
+            names,
+            role_arr,
+            info['degree_graph'].to_numpy(),
+            deg_c.to_numpy(),
+            bt.to_numpy(),
+            ev.to_numpy(),
+            pr.to_numpy(),
+            risk_arr,
         )
-        out.append(
-            {
-                'id': nid,
-                'name': str(row.get('name', f'User {nid}')),
-                'role': role,
-                'degree': deg_g,
-                'degree_metric': deg_c,
-                'betweenness': bt,
-                'eigenvector': ev,
-                'risk': risk,
-                'risk_score': 0,
-            }
-        )
+    ]
     apply_normalized_risk_scores(out)
     return out
 
@@ -1887,6 +2157,8 @@ def empty_graph_payload() -> dict:
 
 def _normalize_viz_mode(viz: Optional[str]) -> str:
     key = (viz or 'summary').strip().lower()
+    if key in ('dense', 'test', 'testpy'):
+        return 'dense'
     if key in ('full', 'all', 'entire', 'complete', 'galaxy'):
         return 'full'
     return 'summary'
@@ -1924,8 +2196,11 @@ def _viz_all_edges_payload(
         u, v = int(u), int(v)
         w = _edge_viz_weight(graph, u, v)
         ranked.append((w, u, v))
-    ranked.sort(key=lambda row: row[0], reverse=True)
-    ranked = ranked[:max_edges]
+    ranked = heapq.nlargest(
+        max_edges,
+        ranked,
+        key=lambda row: row[0],
+    )
     out = []
     for _, u, v in ranked:
         cu, cv = cluster_name_by_id.get(u), cluster_name_by_id.get(v)
@@ -1942,21 +2217,29 @@ def _viz_all_edges_payload(
     return out
 
 
-def build_graph_payload(*, viz: str = 'summary'):
+def build_graph_payload(*, viz: str = 'summary', output_dir: Optional[str] = None):
     global _cached_graph, _cached_payload_by_viz, _cached_output
     viz_key = _normalize_viz_mode(viz)
-    try:
-        folder, users, relationships, metrics = load_output_data()
-    except FileNotFoundError as e:
-        logger.warning('Chưa có bộ dữ liệu output: %s', e)
+    folder = resolve_output_folder(output_dir)
+    if folder is None or not folder.exists():
+        logger.warning('Chưa có bộ dữ liệu output')
         return empty_graph_payload()
 
     if _cached_output == folder and viz_key in _cached_payload_by_viz:
         return _cached_payload_by_viz[viz_key]
 
-    graph = create_graph(users, relationships)
-    _cached_graph = graph
-    _cached_output = folder
+    try:
+        folder, users, relationships, metrics = load_output_data(output_dir)
+    except FileNotFoundError as e:
+        logger.warning('Chưa có bộ dữ liệu output: %s', e)
+        return empty_graph_payload()
+
+    if _cached_output == folder and _cached_graph is not None:
+        graph = _cached_graph
+    else:
+        graph = create_graph(users, relationships)
+        _cached_graph = graph
+        _cached_output = folder
 
     n_total_early = graph.number_of_nodes()
     if use_fast_graph_algorithms(n_total_early):
@@ -1973,7 +2256,7 @@ def build_graph_payload(*, viz: str = 'summary'):
 
     metrics_norm = _metrics_layout_frame(metrics)
     hub_nodes = _select_cluster_hubs(graph, communities, metrics_norm)
-    bet, _, _ = _centrality_maps(metrics_norm, graph)
+    bet, _, _, pr = _centrality_maps(metrics_norm, graph)
     centers = _community_center_nodes(graph, communities, bet)
     n_total = graph.number_of_nodes()
 
@@ -1990,13 +2273,16 @@ def build_graph_payload(*, viz: str = 'summary'):
     cluster_name_by_id = {nid: cluster_map[nid]['name'] for nid in cluster_map}
 
     force_full = viz_key == 'full'
-    if force_full:
+    force_dense = viz_key == 'dense'
+    use_test_viz = force_dense or (viz_key == 'summary' and n_total >= TEST_STYLE_MIN_NODES)
+
+    if force_full or use_test_viz:
         all_ids = {int(v) for v in graph.nodes()}
         if len(all_ids) > GALAXY_MAX_NODES:
-            _, eig, deg = _centrality_maps(metrics_norm, graph)
+            _, eig, deg, pr = _centrality_maps(metrics_norm, graph)
             ranked = sorted(
                 all_ids,
-                key=lambda nid: _viz_score(nid, bet, eig, deg),
+                key=lambda nid: _viz_score(nid, bet, eig, deg, pr),
                 reverse=True,
             )
             visible_ids = set(ranked[:GALAXY_MAX_NODES])
@@ -2004,8 +2290,12 @@ def build_graph_payload(*, viz: str = 'summary'):
             visible_ids = all_ids
         representative_mode = False
         context_ids: Set[int] = set()
-        bridge_ids = _select_bridge_nodes(
-            graph, visible_ids, cluster_name_by_id, bet, limit=24
+        bridge_ids = (
+            set()
+            if use_test_viz
+            else _select_bridge_nodes(
+                graph, visible_ids, cluster_name_by_id, bet, limit=24
+            )
         )
         primary_ids = visible_ids
     else:
@@ -2026,9 +2316,13 @@ def build_graph_payload(*, viz: str = 'summary'):
     )
     layout_comms = _communities_for_nodes(communities, set(layout_graph.nodes()))
     hubs_vis = hub_nodes & set(layout_graph.nodes())
-    used_cluster_grid = len(layout_comms) >= 2 and not force_full
+    used_cluster_grid = len(layout_comms) >= 2 and not force_full and not use_test_viz
 
-    if used_cluster_grid:
+    if use_test_viz:
+        positions = layout_for_network_draw(layout_graph, seed=42)
+        positions = normalize_positions_to_unit(positions)
+        positions = _repel_overlaps(positions, passes=14, min_dist_factor=1.15)
+    elif used_cluster_grid:
         positions = cluster_focus_layout(
             layout_graph, layout_comms, hubs_vis, seed=42
         )
@@ -2076,6 +2370,7 @@ def build_graph_payload(*, viz: str = 'summary'):
         bridge_nodes=bridge_ids,
         galaxy_mode=force_full or representative_mode or n_total <= GALAXY_MAX_NODES,
         graph_node_count=n_total,
+        test_style=use_test_viz,
     )
 
     for node in node_payload:
@@ -2084,7 +2379,15 @@ def build_graph_payload(*, viz: str = 'summary'):
         node['cluster_color'] = node_cluster['color']
         node['color'] = node_cluster['color']
         rk = str(node.get('risk', 'Unknown'))
-        if representative_mode:
+        if use_test_viz:
+            fill = TEST_STYLE_NODE_COLOR
+            node['node_fill'] = fill
+            node['risk_fill'] = fill
+            node['color'] = fill
+            node['opacity'] = round(
+                float(node.get('opacity') or (0.5 if n_total >= 2000 else 0.62)), 3
+            )
+        elif representative_mode:
             fill = cluster_node_fill(
                 node_cluster['color'],
                 rk,
@@ -2108,12 +2411,12 @@ def build_graph_payload(*, viz: str = 'summary'):
     cluster_color_by_id = {
         int(nid): cluster_map[nid]['color'] for nid in cluster_map if nid in edge_visible
     }
-    if force_full:
+    if force_full or use_test_viz:
         edges_payload = _viz_all_edges_payload(
             graph,
             edge_visible,
             cluster_name_by_id,
-            cluster_color_by_id,
+            {nid: TEST_STYLE_EDGE_COLOR for nid in edge_visible},
             max_edges=GALAXY_MAX_EDGES,
         )
     elif representative_mode:
@@ -2225,7 +2528,9 @@ def build_graph_payload(*, viz: str = 'summary'):
             node['risk'] = risk_by_id[rid]['risk']
     top_nodes = sorted(ranking_nodes, key=lambda x: x['risk_score'], reverse=True)[:10]
     n_viz = len(node_payload)
-    if force_full:
+    if use_test_viz:
+        viz_mode = 'dense' if n_viz >= n_total else 'dense_capped'
+    elif force_full:
         viz_mode = 'full' if n_viz >= n_total else 'full_capped'
     else:
         viz_mode = 'summary' if representative_mode else ('full' if n_viz >= n_total else 'summary')
@@ -2235,7 +2540,7 @@ def build_graph_payload(*, viz: str = 'summary'):
         'output_folder': folder.name,
         'nodes': len(users),
         'edges': len(relationships),
-        'data_date': str(users['join_date'].max() if 'join_date' in users.columns else datetime.date.today()),
+        'data_date': dataset_data_date(folder),
         'status': 'Dữ liệu đã sẵn sàng',
         'version': '1.0.0',
         'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -2247,6 +2552,7 @@ def build_graph_payload(*, viz: str = 'summary'):
         'viz_mode': viz_mode,
         'viz_engine': 'force-sna',
         'viz_representative': representative_mode,
+        'viz_test_style': use_test_viz,
         'viz_cluster_layout': used_cluster_grid,
         'viz_nodes_shown': n_viz,
         'viz_nodes_total': n_total,
@@ -2299,13 +2605,14 @@ def api_config():
 @app.route('/api/summary')
 def api_summary():
     try:
-        payload = build_graph_payload()
+        output_dir = request.args.get('output_dir')
+        payload = build_dataset_summary(output_dir=output_dir)
     except Exception as e:
-        logger.exception('api_summary: build_graph_payload failed')
+        logger.exception('api_summary: build_dataset_summary failed')
         payload = empty_graph_payload()
         payload['hint'] = (
-            f'Lỗi khi dựng đồ thị: {str(e)}. '
-            'Thử bấm «Tạo dữ liệu» lại, giảm số user, hoặc kiểm tra Render đã cài scipy (requirements.txt).'
+            f'Lỗi khi đọc dữ liệu: {str(e)}. '
+            'Thử bấm «Tạo dữ liệu» lại hoặc chọn lại bộ output.'
         )
     return json_safe_response({
         'ready': payload.get('ready', True),
@@ -2321,14 +2628,33 @@ def api_summary():
     })
 
 
+@app.route('/api/graph-png')
+def api_graph_png():
+    """Ảnh matplotlib đã lưu (graph_visualization.png) — cùng kiểu Test.py."""
+    try:
+        output_dir = request.args.get('output_dir')
+        folder = resolve_output_folder(output_dir) if output_dir else get_latest_output_dir()
+        if folder is None:
+            return jsonify({'error': 'Không tìm thấy thư mục output'}), 404
+        png_path = folder / 'graph_visualization.png'
+        if not png_path.is_file():
+            return jsonify({'error': 'Chưa có graph_visualization.png — tạo mạng trên máy local.'}), 404
+        return send_file(png_path, mimetype='image/png', max_age=0)
+    except Exception as e:
+        logger.exception('api_graph_png failed')
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/graph')
 def api_graph():
     if request.args.get('refresh'):
-        global _cached_payload_by_viz
+        global _cached_payload_by_viz, _cached_graph
         _cached_payload_by_viz = {}
+        _cached_graph = None
     viz = request.args.get('viz', 'summary')
     try:
-        payload = build_graph_payload(viz=viz)
+        output_dir = request.args.get('output_dir')
+        payload = build_graph_payload(viz=viz, output_dir=output_dir)
         return json_safe_response(payload)
     except Exception as e:
         logger.exception('api_graph: build_graph_payload failed')
@@ -2400,10 +2726,7 @@ def api_run_generator():
         generator = SocialNetworkGenerator(num_users=num_users, seed=seed)
         generator.run(num_users=num_users, relationship_prob=relationship_prob)
 
-        global _cached_graph, _cached_payload_by_viz, _cached_output
-        _cached_graph = None
-        _cached_payload_by_viz = {}
-        _cached_output = None
+        _invalidate_graph_cache()
 
         folder = Path(generator.output_dir)
         _, users, relationships, metrics = load_output_data(str(folder))
@@ -2448,6 +2771,8 @@ def api_run_simulate():
         recovery_rate = float(payload.get('recovery_rate', 0.02))
         days = int(payload.get('days', 300))
         seed = int(payload.get('seed', 42))
+        misinfo_source_mode = normalize_misinfo_mode(payload.get('misinfo_source_mode', 'random'))
+        num_initial_sources = max(1, int(payload.get('num_initial_sources', 1)))
 
         if model == 'dynamic':
             top_k = int(payload.get('top_k', 10))
@@ -2458,14 +2783,26 @@ def api_run_simulate():
                 top_k=top_k,
                 strategy=strategy,
                 intervention_day=intervention_day,
+                misinfo_source_mode=misinfo_source_mode,
             )
-            sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days, seed=seed)
+            sim.simulate(
+                transmission_rate=transmission_rate,
+                recovery_rate=recovery_rate,
+                days=days,
+                seed=seed,
+                misinfo_source_mode=misinfo_source_mode,
+                num_initial_sources=num_initial_sources,
+            )
             peak_day, peak_I, final_day, total_inf, never_inf = sim.get_statistics()
             return jsonify({
                 'model': 'dynamic',
                 'strategy': sim.strategy,
                 'top_k': sim.top_k,
                 'intervention_day': sim.intervention_day,
+                'misinfo_source_mode': getattr(sim, 'misinfo_source_mode', misinfo_source_mode),
+                'misinfo_source_node_ids': [
+                    int(x) for x in getattr(sim, 'initial_infected_nodes', [])
+                ],
                 'output_directory': sim.results_dir,
                 'peak_day': peak_day,
                 'peak_infected': peak_I,
@@ -2475,11 +2812,22 @@ def api_run_simulate():
             })
 
         sim = PureSIRSimulation(output_dir=output_dir)
-        sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days, seed=seed)
+        sim.simulate(
+            transmission_rate=transmission_rate,
+            recovery_rate=recovery_rate,
+            max_days=days,
+            seed=seed,
+            misinfo_source_mode=misinfo_source_mode,
+            num_initial_sources=num_initial_sources,
+        )
         peak_day, peak_I, final_day, total_inf, never_inf = sim.get_statistics()
         sim.save()
         return jsonify({
             'model': 'pure',
+            'misinfo_source_mode': getattr(sim, 'misinfo_source_mode', misinfo_source_mode),
+            'misinfo_source_node_ids': [
+                int(x) for x in getattr(sim, 'initial_infected_nodes', [])
+            ],
             'output_directory': sim.results_dir,
             'peak_day': peak_day,
             'peak_infected': peak_I,
@@ -2500,12 +2848,19 @@ def api_simulate_sir():
             return _handle_sir_export_pdf(payload)
         model = payload.get('model', 'pure')
         folder, users, relationships, _metrics = load_output_data(payload.get('output_dir'))
-        graph = create_graph(users, relationships)
-        n_nodes = graph.number_of_nodes()
+        global _cached_graph, _cached_output
+        if _cached_output == folder and _cached_graph is not None:
+            graph = _cached_graph
+        else:
+            graph = create_graph(users, relationships)
+            _cached_graph = graph
+            _cached_output = folder
         transmission_rate = float(payload.get('transmission_rate', 0.3))
         recovery_rate = float(payload.get('recovery_rate', 0.1))
         days = int(payload.get('days', 300))
         seed = int(payload.get('seed', 42))
+        misinfo_source_mode = normalize_misinfo_mode(payload.get('misinfo_source_mode', 'random'))
+        num_initial_sources = max(1, int(payload.get('num_initial_sources', 1)))
 
         if model == 'dynamic':
             top_k = int(payload.get('top_k', 10))
@@ -2516,16 +2871,33 @@ def api_simulate_sir():
                 top_k=top_k,
                 strategy=strategy,
                 intervention_day=intervention_day,
+                misinfo_source_mode=misinfo_source_mode,
+                graph=graph,
+                users=users,
+                relationships=relationships,
             )
-            sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, days=days, seed=seed)
+            sim.simulate(
+                transmission_rate=transmission_rate,
+                recovery_rate=recovery_rate,
+                days=days,
+                seed=seed,
+                misinfo_source_mode=misinfo_source_mode,
+                num_initial_sources=num_initial_sources,
+            )
             peak_day, peak_I, final_day, total_inf, never_inf = sim.get_statistics()
             hist = sim.history.to_dict(orient='records')
             imm = [int(x) for x in sim.immunized_nodes]
+            init_ids = [int(x) for x in getattr(sim, 'initial_infected_nodes', [])]
+            init_detail = misinfo_source_labels(init_ids, users)
+            _recommendations_cache.pop(str(folder.resolve()), None)
             return jsonify({
                 'model': 'dynamic',
                 'strategy': sim.strategy,
                 'top_k': sim.top_k,
                 'intervention_day': sim.intervention_day,
+                'misinfo_source_mode': getattr(sim, 'misinfo_source_mode', misinfo_source_mode),
+                'misinfo_source_node_ids': init_ids,
+                'misinfo_source_nodes': init_detail,
                 'peak_day': peak_day,
                 'peak_infected': peak_I,
                 'final_day': final_day,
@@ -2536,13 +2908,31 @@ def api_simulate_sir():
                 'immunized_node_ids': imm,
             })
 
-        sim = PureSIRSimulation(output_dir=str(folder))
-        sim.simulate(transmission_rate=transmission_rate, recovery_rate=recovery_rate, max_days=days, seed=seed)
+        sim = PureSIRSimulation(
+            output_dir=str(folder),
+            graph=graph,
+            users=users,
+            relationships=relationships,
+        )
+        sim.simulate(
+            transmission_rate=transmission_rate,
+            recovery_rate=recovery_rate,
+            max_days=days,
+            seed=seed,
+            misinfo_source_mode=misinfo_source_mode,
+            num_initial_sources=num_initial_sources,
+        )
         peak_day, peak_I, final_day, total_inf, never_inf = sim.get_statistics()
         sim.save()
         hist = sim.history.to_dict(orient='records')
+        init_ids = [int(x) for x in getattr(sim, 'initial_infected_nodes', [])]
+        init_detail = misinfo_source_labels(init_ids, users)
+        _recommendations_cache.pop(str(folder.resolve()), None)
         return jsonify({
             'model': 'pure',
+            'misinfo_source_mode': getattr(sim, 'misinfo_source_mode', misinfo_source_mode),
+            'misinfo_source_node_ids': init_ids,
+            'misinfo_source_nodes': init_detail,
             'peak_day': peak_day,
             'peak_infected': peak_I,
             'final_day': final_day,
@@ -2565,6 +2955,8 @@ def api_sir_results():
         if folder is None or not folder.exists():
             return jsonify({'error': 'Không tìm thấy thư mục output'}), 404
 
+        misinfo_q = normalize_misinfo_mode(request.args.get('misinfo_source_mode', 'random'))
+
         if model == 'dynamic':
             strat_q = (request.args.get('strategy') or 'betweenness').strip().lower()
             if strat_q not in DYNAMIC_STRATEGIES:
@@ -2572,18 +2964,25 @@ def api_sir_results():
             intervention_day = int(request.args.get('intervention_day', 1))
             top_k_arg = request.args.get('top_k')
             top_k = int(top_k_arg) if top_k_arg not in (None, '') else None
-            hist_path = find_dynamic_sir_history_csv(folder, strat_q, intervention_day, top_k)
+            hist_path = find_dynamic_sir_history_csv(
+                folder, strat_q, intervention_day, top_k, misinfo_q
+            )
         else:
             strat_q = None
             intervention_day = None
-            hist_path = find_pure_sir_history_csv(folder)
+            hist_path = find_pure_sir_history_csv(folder, misinfo_q)
 
         if hist_path is None:
             return jsonify({'error': 'Chưa có sir_history.csv'}), 404
 
         df = pd.read_csv(hist_path)
         users_csv = folder / 'users.csv'
-        n_nodes = len(pd.read_csv(users_csv)) if users_csv.exists() else int(df['S'].iloc[0] + df['I'].iloc[0] + df['R'].iloc[0])
+        users_df = pd.read_csv(users_csv) if users_csv.exists() else None
+        n_nodes = (
+            len(users_df)
+            if users_df is not None
+            else int(df['S'].iloc[0] + df['I'].iloc[0] + df['R'].iloc[0])
+        )
         peak_day, peak_I, final_day, total_inf, never_inf = sir_metrics_from_history_df(df, n_nodes)
 
         payload = {
@@ -2596,7 +2995,23 @@ def api_sir_results():
                 'never_infected': never_inf,
             },
             'output_directory': str(hist_path.parent.resolve()),
+            'misinfo_source_mode': misinfo_q,
         }
+        mis_path = hist_path.parent / 'misinfo_source.json'
+        if mis_path.is_file():
+            try:
+                with open(mis_path, encoding='utf-8') as f:
+                    mj = json.load(f)
+                if mj.get('misinfo_source_mode'):
+                    payload['misinfo_source_mode'] = normalize_misinfo_mode(
+                        str(mj['misinfo_source_mode'])
+                    )
+                init_ids = [int(x) for x in mj.get('node_ids', [])]
+                if users_df is not None and init_ids:
+                    payload['misinfo_source_node_ids'] = init_ids
+                    payload['misinfo_source_nodes'] = misinfo_source_labels(init_ids, users_df)
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                pass
         if model == 'dynamic':
             payload['strategy'] = strat_q
             payload['intervention_day'] = intervention_day
@@ -2611,6 +3026,10 @@ def api_sir_results():
                         payload['strategy'] = str(mj.get('strategy')).strip().lower()
                     if mj.get('intervention_day') is not None:
                         payload['intervention_day'] = int(mj.get('intervention_day'))
+                    if mj.get('misinfo_source_mode'):
+                        payload['misinfo_source_mode'] = normalize_misinfo_mode(
+                            str(mj['misinfo_source_mode'])
+                        )
                 except (OSError, json.JSONDecodeError, TypeError, ValueError):
                     pass
 
@@ -2705,11 +3124,15 @@ def api_sir_saved_runs():
         if folder is None or not folder.exists():
             return jsonify({'error': 'Không tìm thấy thư mục output'}), 404
 
-        pure_ok = find_pure_sir_history_csv(folder) is not None
+        pure_runs = list_saved_pure_sir_runs(folder)
+        pure_ok = len(pure_runs) > 0 or find_pure_sir_history_csv(folder) is not None
+        if pure_ok and not pure_runs:
+            pure_runs = [{'misinfo_source_mode': 'random'}]
         dynamics = list_saved_dynamic_sir_runs(folder)
         return jsonify({
             'output_folder': folder.name,
             'pure_available': pure_ok,
+            'pure_runs': pure_runs,
             'dynamic_runs': dynamics,
         })
     except Exception as e:
@@ -2792,6 +3215,47 @@ def _list_output_dataset_dirs(include_uploaded: bool = True) -> list[Path]:
     return candidates
 
 
+@app.route('/api/output-datasets', methods=['GET'])
+def api_output_datasets():
+    """Liệt kê các dataset output_* để chọn lại mà không cần tạo mới."""
+    try:
+        include_uploaded = (request.args.get('include_uploaded', '1') or '1').strip() not in (
+            '0',
+            'false',
+            'False',
+        )
+        dirs = _list_output_dataset_dirs(include_uploaded=include_uploaded)
+        rows: list[dict] = []
+        for folder in dirs[:80]:
+            nodes = None
+            edges = None
+            try:
+                users_csv = folder / 'users.csv'
+                rels_csv = folder / 'relationships.csv'
+                if users_csv.is_file() and rels_csv.is_file():
+                    nodes = _csv_row_count(users_csv)
+                    edges = _csv_row_count(rels_csv)
+            except Exception:
+                nodes = None
+                edges = None
+            try:
+                updated_at = int(folder.stat().st_mtime)
+            except OSError:
+                updated_at = None
+            rows.append(
+                {
+                    'name': folder.name,
+                    'updated_at': updated_at,
+                    'nodes': nodes,
+                    'edges': edges,
+                }
+            )
+        return jsonify({'datasets': rows})
+    except Exception as e:
+        logger.exception('api_output_datasets failed')
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/cleanup-outputs', methods=['POST'])
 def api_cleanup_outputs():
     try:
@@ -2819,10 +3283,7 @@ def api_cleanup_outputs():
             for base in (OUTPUTS_DIR, OUTPUT_ROOT, BASE_DIR):
                 cleared_sim_roots += clear_orphan_legacy_sir_dirs(base)
 
-        global _cached_graph, _cached_payload_by_viz, _cached_output
-        _cached_graph = None
-        _cached_payload_by_viz = {}
-        _cached_output = None
+        _invalidate_graph_cache()
 
         return jsonify({
             'removed_count': len(removed_names),
@@ -2845,6 +3306,32 @@ def api_health():
     })
 
 
+def _save_uploaded_dataset(
+    users_df: pd.DataFrame,
+    relationships_df: pd.DataFrame,
+    *,
+    seed: int = 42,
+) -> Path:
+    """Lưu users/relationships/metrics vào outputs/output_uploaded_*."""
+    OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    main_output_dir = OUTPUTS_DIR / f'output_uploaded_{stamp}'
+    main_output_dir.mkdir(parents=True, exist_ok=True)
+
+    users_df.to_csv(main_output_dir / 'users.csv', index=False)
+    relationships_df.to_csv(main_output_dir / 'relationships.csv', index=False)
+
+    generator = SocialNetworkGenerator(num_users=len(users_df), seed=seed)
+    generator.output_dir = str(main_output_dir)
+    generator.users = users_df.to_dict('records')
+    generator.relationships = relationships_df.to_dict('records')
+    generator.create_graph()
+    generator.calculate_metrics().to_csv(main_output_dir / 'metrics.csv', index=False)
+
+    _invalidate_graph_cache()
+    return main_output_dir
+
+
 @app.route('/api/upload-data', methods=['POST'])
 def api_upload_data():
     if 'file' not in request.files:
@@ -2854,108 +3341,70 @@ def api_upload_data():
     if file.filename == '':
         return jsonify({'error': 'Không có file được chọn'}), 400
 
-    if not file.filename.endswith('.csv'):
-        return jsonify({'error': 'Chỉ chấp nhận file CSV'}), 400
+    if not allowed_upload_filename(file.filename):
+        return jsonify({'error': 'Chỉ chấp nhận file .csv, .xlsx hoặc .xls'}), 400
 
     try:
-        # Read CSV data
-        df = pd.read_csv(file)
+        df = read_upload_table(file)
+        if df is None or df.empty:
+            return jsonify({'error': 'File rỗng hoặc không đọc được'}), 400
 
-        # Validate required columns
-        required_cols = ['id', 'name', 'followers', 'posts', 'shares', 'comments', 'risk']
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            return jsonify({'error': f'Thiếu các cột bắt buộc: {", ".join(missing_cols)}'}), 400
+        kind = detect_upload_kind(df)
 
-        # Create temporary directory for processing
-        temp_dir = Path(tempfile.mkdtemp(prefix='upload_'))
-        output_dir = temp_dir / f"uploaded_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        if kind == 'edges':
+            users_df, relationships_df = prepare_edges_upload(df)
+            main_output_dir = _save_uploaded_dataset(users_df, relationships_df)
+            n_nodes = len(users_df)
+            n_edges = len(relationships_df)
+            msg = (
+                f'Đã nhập {n_edges:,} quan hệ kết bạn, '
+                f'{n_nodes:,} người dùng (suy ra từ danh sách cạnh).'
+            )
+        else:
+            required_cols = ['id', 'name', 'followers', 'posts', 'shares', 'comments', 'risk']
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                return jsonify(
+                    {'error': f'Thiếu các cột bắt buộc: {", ".join(missing_cols)}'}
+                ), 400
 
-        # Process the uploaded data
-        generator = SocialNetworkGenerator(num_users=len(df), seed=42)
-        generator.users = df.to_dict('records')
+            relationships = []
+            for i, user1 in enumerate(df.to_dict('records')):
+                for j, user2 in enumerate(df.to_dict('records')):
+                    if i >= j:
+                        continue
+                    risk_factor = {'High': 0.8, 'Medium': 0.5, 'Low': 0.3, 'Unknown': 0.2}
+                    prob = risk_factor.get(user1.get('risk', 'Unknown'), 0.2) * risk_factor.get(
+                        user2.get('risk', 'Unknown'), 0.2
+                    )
+                    if np.random.random() < prob:
+                        relationships.append(
+                            {'user1_id': int(user1['id']), 'user2_id': int(user2['id'])}
+                        )
 
-        # Create relationships based on risk levels (higher risk = more connections)
-        relationships = []
-        for i, user1 in enumerate(generator.users):
-            for j, user2 in enumerate(generator.users):
-                if i >= j: continue  # Avoid duplicates and self-connections
-
-                # Higher risk users tend to connect more
-                risk_factor = {'High': 0.8, 'Medium': 0.5, 'Low': 0.3, 'Unknown': 0.2}
-                prob = risk_factor.get(user1.get('risk', 'Unknown'), 0.2) * risk_factor.get(user2.get('risk', 'Unknown'), 0.2)
-
-                if np.random.random() < prob:
-                    relationships.append({
-                        'source': user1['id'],
-                        'target': user2['id'],
-                        'weight': np.random.uniform(0.1, 1.0)
-                    })
-
-        generator.relationships = relationships
-        generator.output_dir = str(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Save processed data
-        users_df = pd.DataFrame(generator.users)
-        relationships_df = pd.DataFrame(generator.relationships)
-
-        users_df.to_csv(output_dir / 'users.csv', index=False)
-        relationships_df.to_csv(output_dir / 'relationships.csv', index=False)
-
-        # Create adjacency matrix
-        G = nx.Graph()
-        G.add_nodes_from([u['id'] for u in generator.users])
-        G.add_edges_from([(r['source'], r['target']) for r in generator.relationships])
-
-        adj_matrix = nx.to_pandas_adjacency(G, dtype=int)
-        adj_matrix.to_csv(output_dir / 'adjacency_matrix.csv')
-
-        # Calculate metrics - compute centrality measures once
-        degree_map = dict(G.degree())
-        betweenness_map = nx.betweenness_centrality(G)
-        
-        # Handle eigenvector centrality with fallback
-        try:
-            eigenvector_map = nx.eigenvector_centrality(G, max_iter=1000)
-        except Exception as e:
-            logger.warning(f'Eigenvector centrality calculation failed: {e}, using fallback')
-            eigenvector_map = {node: 0.0 for node in G.nodes()}
-        
-        metrics_data = []
-        for user in generator.users:
-            node_id = user['id']
-            degree = degree_map.get(node_id, 0)
-            betweenness = betweenness_map.get(node_id, 0)
-            eigenvector = eigenvector_map.get(node_id, 0)
-
-            metrics_data.append({
-                'id': node_id,
-                'name': user['name'],
-                'degree': degree,
-                'betweenness': betweenness,
-                'eigenvector': eigenvector,
-                'risk_score': {'High': 0.9, 'Medium': 0.6, 'Low': 0.3, 'Unknown': 0.1}.get(user.get('risk', 'Unknown'), 0.1)
-            })
-
-        metrics_df = pd.DataFrame(metrics_data)
-        metrics_df.to_csv(output_dir / 'metrics.csv', index=False)
-
-        # Copy to main output directory for dashboard
-        OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-        main_output_dir = OUTPUTS_DIR / f"output_uploaded_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        shutil.copytree(output_dir, main_output_dir)
+            users_df = df.rename(columns={'id': 'user_id'}) if 'id' in df.columns else df
+            relationships_df = pd.DataFrame(relationships)
+            main_output_dir = _save_uploaded_dataset(users_df, relationships_df)
+            n_nodes = len(users_df)
+            n_edges = len(relationships_df)
+            msg = f'Upload bảng người dùng: {n_nodes:,} nút, {n_edges:,} cạnh (sinh theo risk).'
 
         return jsonify({
-            'output_folder': str(main_output_dir),
-            'nodes': len(generator.users),
-            'edges': len(generator.relationships),
-            'message': f'Upload và xử lý thành công {len(generator.users)} người dùng từ file CSV'
+            'output_folder': main_output_dir.name,
+            'nodes': n_nodes,
+            'edges': n_edges,
+            'upload_kind': kind,
+            'message': msg,
         })
 
+    except ImportError as e:
+        logger.error('Upload dependency missing: %s', e)
+        return jsonify(
+            {'error': 'Thiếu thư viện đọc Excel. Chạy: pip install openpyxl'}
+        ), 500
     except pd.errors.ParserError as e:
         logger.error(f'CSV parsing error: {e}')
-        return jsonify({'error': f'Lỗi định dạng CSV: {str(e)}'}), 400
+        return jsonify({'error': f'Lỗi định dạng file: {str(e)}'}), 400
     except ValueError as e:
         logger.error(f'Value error processing uploaded file: {e}')
         return jsonify({'error': f'Lỗi dữ liệu không hợp lệ: {str(e)}'}), 400

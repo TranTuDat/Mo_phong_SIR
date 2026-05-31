@@ -1,5 +1,5 @@
 /**
- * Dashboard — tích hợp API vào giao diện Mau.html (y hệt layout/CSS)
+ * Dashboard — tích hợp API vào giao diện hiện tại (giữ nguyên layout/CSS)
  */
 (function () {
   const TOP_N = 10;
@@ -46,7 +46,7 @@
   }
 
   function applyTrends() {
-    /* Giữ nguyên chuỗi trend như Mau.html */
+    /* Giữ nguyên chuỗi trend của giao diện hiện tại */
   }
 
   function rawRiskScore(node) {
@@ -119,6 +119,12 @@
     return Number(v).toFixed(3);
   }
 
+  function formatCentrality(node, field) {
+    const v = node?.[field];
+    if (v == null || Number.isNaN(Number(v))) return '—';
+    return Number(v).toFixed(3);
+  }
+
   function renderTopNodes() {
     const tbody = document.getElementById('topNodesTable');
     if (!tbody) return;
@@ -132,8 +138,9 @@
         <td>${node.name}</td>
         <td>${node.role || '—'}</td>
         <td>${displayDegree(node)}</td>
-        <td>${Number(node.betweenness).toFixed(3)}</td>
-        <td>${Number(node.eigenvector).toFixed(3)}</td>
+        <td>${formatCentrality(node, 'betweenness')}</td>
+        <td>${formatCentrality(node, 'eigenvector')}</td>
+        <td>${formatCentrality(node, 'pagerank')}</td>
         <td><span class="risk-score ${riskKey(node.risk)}">${(score / 100).toFixed(3)}</span></td>
       `;
       tr.addEventListener('click', () => selectNode(node.id));
@@ -301,7 +308,8 @@
   }
 
   async function fetchJson(path, options) {
-    const res = await fetch(path, options);
+    const url = window.MauShell?.withOutputDir ? window.MauShell.withOutputDir(path) : path;
+    const res = await fetch(url, options);
     let body = {};
     try {
       body = await res.json();

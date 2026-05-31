@@ -1,5 +1,5 @@
 /**
- * Shell Mau.html dùng chung: menu, header, footer, modal nhập dữ liệu, thống kê sidebar.
+ * Shell dùng chung: menu, header, footer, modal nhập dữ liệu, thống kê sidebar.
  */
 (function (global) {
   const ROUTES = {
@@ -11,6 +11,34 @@
     risk: '/#dash-top-table',
   };
 
+  const ACTIVE_OUTPUT_KEY = 'mau_active_output_dir';
+
+  function getActiveOutputDir() {
+    try {
+      return String(localStorage.getItem(ACTIVE_OUTPUT_KEY) || '').trim() || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function setActiveOutputDir(dirNameOrPath) {
+    try {
+      const v = String(dirNameOrPath || '').trim();
+      if (!v) localStorage.removeItem(ACTIVE_OUTPUT_KEY);
+      else localStorage.setItem(ACTIVE_OUTPUT_KEY, v);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function withOutputDir(url) {
+    const out = getActiveOutputDir();
+    if (!out) return url;
+    if (String(url).includes('output_dir=')) return url;
+    const sep = String(url).includes('?') ? '&' : '?';
+    return `${url}${sep}output_dir=${encodeURIComponent(out)}`;
+  }
+
   function toast(msg, ms = 3200) {
     const el = document.createElement('div');
     el.className = 'toast-msg';
@@ -20,7 +48,7 @@
   }
 
   async function fetchJson(path, options) {
-    const res = await fetch(path, options);
+    const res = await fetch(withOutputDir(path), options);
     let body = {};
     try {
       body = await res.json();
@@ -50,6 +78,7 @@
 
   function openModal() {
     document.getElementById('dataGenModal')?.classList.add('open');
+    void refreshDatasetsList();
   }
 
   function closeModal() {
@@ -187,10 +216,6 @@
           openModal();
           return;
         }
-        if (key === 'report') {
-          toast('Phiên bản và thời gian cập nhật ở chân trang.');
-          return;
-        }
         const href = ROUTES[key];
         if (href) {
           if (href.startsWith('/#') && page === 'overview') {
@@ -205,19 +230,24 @@
     setActiveNav(page);
   }
 
+  function bindLangToggle() {
+    const btn = document.getElementById('langToggle');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      if (window.I18N) {
+        window.I18N.toggleLang();
+      }
+    });
+  }
+
   function bindHeader() {
-    document.getElementById('btnGuide')?.addEventListener('click', () => {
-      toast('Tổng quan: bản đồ mạng & Top 10. Phân tích mạng: mô phỏng SIR.');
-    });
-    document.getElementById('btnReport')?.addEventListener('click', () => {
-      toast('Phiên bản và thời gian cập nhật ở chân trang.');
-    });
-    document.getElementById('btnExport')?.addEventListener('click', () => {
-      toast('Dữ liệu CSV nằm trong thư mục outputs/ trên máy chủ.');
-    });
-    document.getElementById('btnSettings')?.addEventListener('click', () => {
-      toast('Dùng «Nhập dữ liệu» để sinh lại mạng.');
-    });
+    const page = document.body.getAttribute('data-mau-page') || '';
+    if (page !== 'simulation') {
+      document.getElementById('btnReport')?.addEventListener('click', () => {
+        toast('Phiên bản và thời gian cập nhật ở chân trang.');
+      });
+    }
+    bindLangToggle();
   }
 
   function bindModal(onDataReady) {
@@ -225,6 +255,20 @@
     document.getElementById('modalClose')?.addEventListener('click', closeModal);
     document.getElementById('modalCancel')?.addEventListener('click', closeModal);
     document.getElementById('btnConfirmGenerate')?.addEventListener('click', () => confirmData(onDataReady));
+    document.getElementById('btnUseExistingOutput')?.addEventListener('click', async () => {
+      const sel = document.getElementById('existingOutputSelect');
+      const v = sel?.value;
+      if (!v) {
+        toast('Chọn một output có sẵn.');
+        return;
+      }
+      setActiveOutputDir(v);
+      closeModal();
+      toast('Đã chọn bộ dữ liệu cũ.');
+      await refreshSideStats();
+      if (typeof onDataReady === 'function') await onDataReady();
+      if (typeof global.onSharedDataReady === 'function') await global.onSharedDataReady();
+    });
     document.getElementById('dataSource')?.addEventListener('change', function () {
       const g = document.getElementById('fileUploadGroup');
       if (g) g.style.display = this.value === 'upload' ? 'block' : 'none';
@@ -238,19 +282,52 @@
     try {
       const cfg = await fetchJson('/api/config');
       const nu = document.getElementById('numUsers');
-      const hint = nu?.closest('div')?.querySelector('small');
       const maxU = Number(cfg.max_users) || 10000;
       if (nu) {
         nu.max = String(maxU);
         if (parseInt(nu.value, 10) > maxU) nu.value = String(Math.min(maxU, 3000));
       }
-      if (hint) {
-        hint.textContent = cfg.hint_generate || `10–${maxU}`;
-      }
       document.body.dataset.skipGraphViz = cfg.skip_graph_viz ? '1' : '0';
       return cfg;
     } catch {
       return null;
+    }
+  }
+
+  function formatDatasetLabel(row) {
+    if (!row) return '—';
+    const n = Number(row.nodes);
+    const e = Number(row.edges);
+    const ne =
+      Number.isFinite(n) && Number.isFinite(e) ? ` — ${n} nút / ${e} cạnh` : '';
+    return `${row.name || 'output'}${ne}`;
+  }
+
+  async function refreshDatasetsList() {
+    const sel = document.getElementById('existingOutputSelect');
+    const btn = document.getElementById('btnUseExistingOutput');
+    if (!sel || !btn) return;
+    btn.disabled = true;
+    try {
+      const data = await fetchJson('/api/output-datasets?include_uploaded=1');
+      const list = Array.isArray(data.datasets) ? data.datasets : [];
+      sel.replaceChildren();
+      const opt0 = document.createElement('option');
+      opt0.value = '';
+      opt0.textContent = window.I18N ? window.I18N.t('dashboard.modalReusePlaceholder') : '— Chọn output đã có —';
+      sel.appendChild(opt0);
+      list.forEach((row) => {
+        const opt = document.createElement('option');
+        opt.value = row.name;
+        opt.textContent = formatDatasetLabel(row);
+        sel.appendChild(opt);
+      });
+      const cur = getActiveOutputDir();
+      if (cur) sel.value = cur;
+    } catch {
+      /* ignore */
+    } finally {
+      btn.disabled = false;
     }
   }
 
@@ -263,6 +340,13 @@
     document.getElementById('btnCleanupOutputs')?.addEventListener('click', () => cleanupOldOutputs(onDataReady));
     applyServerConfig();
     refreshSideStats();
+    if (window.I18N) {
+      window.I18N.applyI18n();
+      window.addEventListener('app:langchange', () => {
+        window.I18N.applyI18n();
+        void refreshDatasetsList();
+      });
+    }
     if (page === 'overview' && window.location.hash) {
       const el = document.querySelector(window.location.hash);
       if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 200);
@@ -278,5 +362,8 @@
     refreshSideStats,
     cleanupOldOutputs,
     ROUTES,
+    getActiveOutputDir,
+    setActiveOutputDir,
+    withOutputDir,
   };
 })(typeof window !== 'undefined' ? window : global);

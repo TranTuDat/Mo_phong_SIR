@@ -20,11 +20,13 @@ STRATEGY_LABELS_VI = {
     'betweenness': ('Betweenness', 'Trung gian (cầu nối)'),
     'degree': ('Degree', 'Bậc cao'),
     'eigenvector': ('Eigenvector', 'Ảnh hưởng lan truyền'),
+    'pagerank': ('PageRank', 'Ảnh hưởng lan truyền (PR)'),
 }
 STRATEGY_LABELS_EN = {
     'betweenness': ('Betweenness', 'Bridge / broker nodes'),
     'degree': ('Degree', 'High degree'),
     'eigenvector': ('Eigenvector', 'Propagation influence'),
+    'pagerank': ('PageRank', 'Propagation rank'),
 }
 
 

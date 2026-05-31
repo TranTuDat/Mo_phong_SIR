@@ -221,6 +221,22 @@ body {
   height: 14px;
 }
 
+#langToggle {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  border: 1px solid #d1d5db;
+  padding: 5px 10px;
+  min-width: 36px;
+  justify-content: center;
+}
+
+#langToggle:hover {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
 /* Content Area */
 .content {
   flex: 1;

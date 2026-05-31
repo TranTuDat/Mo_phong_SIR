@@ -17,7 +17,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from .graph_layout import spring_or_circular
+from .graph_draw import draw_network_test_style
 from .deploy_env import betweenness_sample_k, skip_heavy_viz, use_fast_graph_algorithms
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -332,6 +332,12 @@ class SocialNetworkGenerator:
             except nx.NetworkXError:
                 logger.warning("Không thể tính eigenvector centrality, sử dụng giá trị 0")
                 eigenvector = {node: 0 for node in self.graph.nodes()}
+
+            try:
+                pagerank = nx.pagerank(self.graph, alpha=0.85, max_iter=200, tol=1e-06)
+            except Exception:
+                logger.warning("Không thể tính PageRank, sử dụng degree làm proxy")
+                pagerank = {node: float(degree.get(node, 0)) for node in self.graph.nodes()}
             
             node_ids = list(self.graph.nodes())
             metrics_df = pd.DataFrame({
@@ -339,6 +345,7 @@ class SocialNetworkGenerator:
                 'betweenness_centrality': [betweenness.get(node, 0) for node in node_ids],
                 'degree_centrality': [degree.get(node, 0) for node in node_ids],
                 'eigenvector_centrality': [eigenvector.get(node, 0) for node in node_ids],
+                'pagerank': [pagerank.get(node, 0) for node in node_ids],
             })
             
             metrics_df = metrics_df.sort_values('betweenness_centrality', ascending=False)
@@ -411,19 +418,31 @@ class SocialNetworkGenerator:
             
             metrics = self.calculate_metrics()
             degree = dict(zip(metrics['user_id'], metrics['degree_centrality']))
-            betweenness = dict(zip(metrics['user_id'], metrics['betweenness_centrality']))
-            eigenvector = dict(zip(metrics['user_id'], metrics['eigenvector_centrality']))
-            
-            # Biểu đồ 1: Đồ thị mạng xã hội
+            n_nodes = self.graph.number_of_nodes()
+            use_degree_sizes = n_nodes <= 300
+
+            # Biểu đồ 1: kiểu Test.py (node nhỏ, cạnh mảnh — ổn với mạng lớn)
             ax1 = axes[0]
-            pos = spring_or_circular(self.graph, seed=42, iterations=50, k=0.5)
-            node_sizes = [max(50, degree.get(node, 0.01) * 300) for node in self.graph.nodes()]
-            
-            nx.draw_networkx_nodes(self.graph, pos, node_size=node_sizes, node_color='lightblue', 
-                                  ax=ax1, edgecolors='steelblue', linewidths=0.5)
-            nx.draw_networkx_edges(self.graph, pos, edge_color='gray', alpha=0.2, ax=ax1, width=0.5)
-            ax1.set_title('Đồ thị mạng xã hội vô hướng\n(Kích thước node = Degree)', fontsize=12, pad=10)
-            ax1.axis('off')
+            draw_network_test_style(
+                self.graph,
+                ax1,
+                seed=self.seed,
+                use_degree_sizes=use_degree_sizes,
+                metrics_degree=degree,
+            )
+            if use_degree_sizes:
+                ax1.set_title(
+                    'Đồ thị mạng xã hội\n(kích thước nút ∝ Degree)',
+                    fontsize=12,
+                    pad=10,
+                )
+            else:
+                ax1.set_title(
+                    f'Đồ thị mạng xã hội ({n_nodes} nút)\n'
+                    f'kiểu Test.py — node nhỏ, cạnh mảnh',
+                    fontsize=12,
+                    pad=10,
+                )
             
             # Biểu đồ 2: Top 10 theo Degree Centrality
             ax2 = axes[1]
