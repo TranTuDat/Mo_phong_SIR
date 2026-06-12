@@ -53,9 +53,11 @@
     return { output_dir, ...extra };
   }
 
-  async function loadSidebarSummary() {
+  async function loadSidebarSummary(force) {
     try {
-      const data = await fetchJson('/api/summary');
+      const data = window.MauShell?.fetchSummaryCached
+        ? await window.MauShell.fetchSummaryCached(!!force)
+        : await fetchJson('/api/summary');
       const n = document.getElementById('summary-nodes');
       const e = document.getElementById('summary-edges');
       if (n) n.textContent = data.nodes;
@@ -65,6 +67,67 @@
       console.warn(err);
       return null;
     }
+  }
+
+  function cacheOutputDir(summary) {
+    const stored = getActiveOutputDir();
+    if (stored) return stored;
+    const raw = summary?.output_folder || '';
+    if (!raw) return '';
+    const parts = String(raw).replace(/\\/g, '/').split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : String(raw);
+  }
+
+  function persistSirSession(summary) {
+    const out = cacheOutputDir(summary);
+    const cache = window.MauSessionCache;
+    if (!out || !cache) return;
+    const count = Object.keys(pureRuns).length + Object.keys(dynamicRuns).length;
+    if (!count) return;
+    cache.set(cache.KIND.SIR, out, {
+      pureRuns: { ...pureRuns },
+      dynamicRuns: { ...dynamicRuns },
+      activeSirRunKey,
+    });
+    cache.remove(cache.KIND.RECOMMENDATIONS, out);
+  }
+
+  function hydrateSirSessionFromCache(summary) {
+    const out = cacheOutputDir(summary);
+    const cached = window.MauSessionCache?.get(window.MauSessionCache.KIND.SIR, out);
+    if (!cached) return false;
+    const pr = cached.pureRuns || {};
+    const dr = cached.dynamicRuns || {};
+    if (!Object.keys(pr).length && !Object.keys(dr).length) return false;
+    Object.keys(pureRuns).forEach((k) => delete pureRuns[k]);
+    Object.keys(dynamicRuns).forEach((k) => delete dynamicRuns[k]);
+    Object.assign(pureRuns, pr);
+    Object.assign(dynamicRuns, dr);
+    activeSirRunKey = cached.activeSirRunKey || activeSirRunKey;
+    return true;
+  }
+
+  async function bootstrapSirFromCacheOrApi(summary) {
+    if (hydrateSirSessionFromCache(summary)) {
+      const all = listSirRunOptions();
+      if (all.length) {
+        const key = all.some((o) => o.key === activeSirRunKey)
+          ? activeSirRunKey
+          : all[all.length - 1].key;
+        switchSirResultTab('chart', {
+          currentTarget: document.querySelector('.sim-results-panel .result-tab-btn[data-sir-tab="chart"]'),
+        });
+        syncSirRunPicker(key);
+        setActiveSirRun(key);
+      }
+      const strip = document.getElementById('sirResultsStrip');
+      if (strip) strip.hidden = false;
+      updateComparisonEmptyState();
+      updateReportButton();
+      return;
+    }
+    await restoreSavedSirRuns(summary);
+    persistSirSession(summary);
   }
 
   function switchModel(model) {
@@ -184,11 +247,18 @@
   }
 
   function strategyShortName(strat) {
-    if (strat === 'random') return getLang() === 'en' ? 'random' : 'ngẫu nhiên';
-    if (strat === 'degree') return 'degree';
-    if (strat === 'eigenvector') return 'eigenvector';
-    if (strat === 'pagerank') return 'pagerank';
-    return 'betweenness';
+    const map = {
+      random: 'sir.strategyShortRandom',
+      betweenness: 'sir.strategyShortBetweenness',
+      degree: 'sir.strategyShortDegree',
+      eigenvector: 'sir.strategyShortEigenvector',
+      pagerank: 'sir.strategyShortPagerank',
+    };
+    return t(map[strat] || 'sir.strategyShortBetweenness');
+  }
+
+  function simModelLabel(model) {
+    return model === 'pure' ? t('sir.modelPure') : t('sir.modelDyn');
   }
 
   function misinfoSourceMode() {
@@ -236,13 +306,13 @@
   function formatComparisonColumnLabel(item) {
     const src = misinfoModeShortLabel(item.misinfo_source_mode || 'random');
     if (item.type === 'pure') {
-      return getLang() === 'en' ? `Pure (${src})` : `Thuần (${src})`;
+      return `${t('sir.comparisonPurePrefix')} (${src})`;
     }
     const strat = strategyShortName(item.strategy || 'betweenness');
     const day = item.intervention_day != null ? item.intervention_day : 1;
     const k = item.top_k != null ? item.top_k : '—';
-    const dayWord = getLang() === 'en' ? 'd' : 'ngày';
-    return `${src} · ${strat} ${dayWord}${day}, k=${k}`;
+    const dayWord = t('sir.comparisonDayWord');
+    return `${src} · ${strat} ${dayWord} ${day}, k=${k}`;
   }
 
   function formatComparisonSeriesLabel(item) {
@@ -464,7 +534,19 @@
     }
 
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    doc.save(`sir_bao_cao_day_du_${stamp}.pdf`);
+    const fname =
+      lang === 'en' ? `sir_full_report_${stamp}.pdf` : `sir_bao_cao_day_du_${stamp}.pdf`;
+    doc.save(fname);
+  }
+
+  function refreshChartsBeforePdfExport() {
+    const { model, data } = getActiveSirRunData();
+    if (data?.history?.length) {
+      drawSirSimChart(data.history, sirChartTitleForModel(model));
+    }
+    if (canShowComparison()) {
+      drawSirComparisonChart();
+    }
   }
 
   async function fetchSirPdfBlob(outputFolder) {
@@ -533,6 +615,7 @@
       if (canShowComparison() && getActiveSirResultTab() !== 'comparison') {
         await refreshComparisonTab();
       }
+      refreshChartsBeforePdfExport();
 
       try {
         const response = await fetchSirPdfBlob(outputFolder);
@@ -699,9 +782,7 @@
 
     const { model, data } = getActiveSirRunData();
     if (!data) return;
-    const modelLabel =
-      model === 'pure' ? 'SIR thuần' : 'SIR + can thiệp (miễn nhiễm động)';
-    updateStatsSim(data, modelLabel);
+    updateStatsSim(data, simModelLabel(model));
     updateResultsStrip(data);
     updateComparisonEmptyState();
     if (canShowComparison()) {
@@ -762,7 +843,7 @@
     } else if (tab === 'comparison') {
       refreshComparisonTab();
     } else if (tab === 'stats' && data) {
-      updateStatsSim(data, model === 'pure' ? 'SIR thuần' : 'SIR + can thiệp (miễn nhiễm động)');
+      updateStatsSim(data, simModelLabel(model));
     }
   }
 
@@ -874,6 +955,7 @@
             : ` Mạng: ${data.nodes} nút.`
           : '';
       showSimStatus(t('msgs.donePure') + nodeHint, 'success');
+      persistSirSession();
     } catch (error) {
       showSimStatus('Lỗi: ' + error.message, 'error');
     } finally {
@@ -951,6 +1033,7 @@
             : ` Mạng: ${data.nodes} nút.`
           : '';
       showSimStatus(t('msgs.doneDyn') + nodeHint, 'success');
+      persistSirSession();
     } catch (error) {
       showSimStatus('Lỗi: ' + error.message, 'error');
     } finally {
@@ -983,9 +1066,7 @@
     if (misEl) misEl.textContent = formatMisinfoSourceLabel(data);
     document.getElementById('detailRuntimeSim').textContent =
       data.top_k != null
-        ? (getLang() === 'en'
-            ? `Immunize top-${data.top_k} by ${stratLabel}, intervention day ${iday}`
-            : `Miễn nhiễm top-${data.top_k} theo ${stratLabel}, ngày can thiệp ${iday}`)
+        ? t('sir.detailRuntimeFmt', { k: data.top_k, strategy: stratLabel, day: iday })
         : '—';
   }
 
@@ -1068,7 +1149,7 @@
         labels,
         datasets: [
           {
-            label: 'Dễ bị lây (S)',
+            label: t('sir.datasetS'),
             data: S,
             borderColor: '#4285f4',
             backgroundColor: 'rgba(66, 133, 244, 0.1)',
@@ -1077,7 +1158,7 @@
             borderWidth: 2,
           },
           {
-            label: 'Đang nhiễm (I)',
+            label: t('sir.datasetI'),
             data: I,
             borderColor: '#ea4335',
             backgroundColor: 'rgba(234, 67, 53, 0.1)',
@@ -1086,7 +1167,7 @@
             borderWidth: 2,
           },
           {
-            label: 'Hồi phục (R)',
+            label: t('sir.datasetR'),
             data: R,
             borderColor: '#34a853',
             backgroundColor: 'rgba(52, 168, 83, 0.1)',
@@ -1115,12 +1196,12 @@
         scales: {
           x: {
             ...sirChartTextOpts().scales.x,
-            title: { display: true, text: 'Ngày mô phỏng', font: { size: SIR_CHART_FONT } },
+            title: { display: true, text: t('sir.chartAxisX'), font: { size: SIR_CHART_FONT } },
           },
           y: {
             ...sirChartTextOpts().scales.y,
             beginAtZero: true,
-            title: { display: true, text: 'Số cá thể', font: { size: SIR_CHART_FONT } },
+            title: { display: true, text: t('sir.chartAxisY'), font: { size: SIR_CHART_FONT } },
           },
         },
       },
@@ -1212,8 +1293,23 @@
           },
         },
         scales: {
-          x: sirCmpChartOpts().scales.x,
-          y: { ...sirCmpChartOpts().scales.y, beginAtZero: true },
+          x: {
+            ...sirCmpChartOpts().scales.x,
+            title: {
+              display: true,
+              text: t('sir.chartAxisX'),
+              font: { size: SIR_CMP_CHART_FONT },
+            },
+          },
+          y: {
+            ...sirCmpChartOpts().scales.y,
+            beginAtZero: true,
+            title: {
+              display: true,
+              text: t('sir.chartCmpAxisY'),
+              font: { size: SIR_CMP_CHART_FONT },
+            },
+          },
         },
       },
     });
@@ -1359,6 +1455,7 @@
     const strip = document.getElementById('sirResultsStrip');
     if (strip) strip.hidden = false;
     updateReportButton();
+    persistSirSession(summary);
   }
 
   async function tryLoadFromUrl() {
@@ -1412,6 +1509,8 @@
   }
 
   async function reloadAfterDataChange() {
+    const out = getActiveOutputDir();
+    window.MauShell?.invalidatePageCaches?.(out);
     pureResults = null;
     dynamicResults = null;
     Object.keys(pureRuns).forEach((k) => delete pureRuns[k]);
@@ -1428,10 +1527,10 @@
       simCompareChart.destroy();
       simCompareChart = null;
     }
-    const summary = await loadSidebarSummary();
+    const summary = await loadSidebarSummary(true);
     await tryLoadFromUrl();
     if (!new URLSearchParams(window.location.search).get('output_dir')) {
-      await restoreSavedSirRuns(summary);
+      await bootstrapSirFromCacheOrApi(summary);
     }
   }
 
@@ -1459,10 +1558,20 @@
     document.getElementById('sirRunSelect')?.addEventListener('change', (e) => {
       setActiveSirRun(e.target.value);
     });
+    window.addEventListener('app:langchange', () => {
+      window.I18N?.applyI18n?.();
+      syncSirRunPicker(activeSirRunKey);
+      setActiveSirRun(activeSirRunKey);
+      updateComparisonEmptyState();
+      if (canShowComparison()) {
+        updateComparisonTableSim();
+        if (getActiveSirResultTab() === 'comparison') drawSirComparisonChart();
+      }
+    });
     const summary = await loadSidebarSummary();
     await tryLoadFromUrl();
     if (!new URLSearchParams(window.location.search).get('output_dir')) {
-      await restoreSavedSirRuns(summary);
+      await bootstrapSirFromCacheOrApi(summary);
     }
     updateComparisonEmptyState();
     updateReportButton();

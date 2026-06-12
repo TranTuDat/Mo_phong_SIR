@@ -269,7 +269,13 @@ def _render_run_detail_page(
         pass
     else:
         ax_chart.axis('off')
-        ax_chart.text(0.5, 0.5, 'Không có lịch sử mô phỏng.', ha='center', fontsize=11)
+        ax_chart.text(
+            0.5,
+            0.5,
+            'Không có lịch sử mô phỏng.' if lang == 'vi' else 'No simulation history.',
+            ha='center',
+            fontsize=11,
+        )
 
     metrics_title = 'Kết quả mô phỏng' if lang == 'vi' else 'Simulation results'
     _render_metrics_table(ax_metrics, _run_metrics_rows(run, lang, pure_metrics), metrics_title, lang)
@@ -636,7 +642,13 @@ def build_sir_comparison_pdf_bytes(
                 fig.subplots_adjust(bottom=0.2)
             else:
                 ax.axis('off')
-                ax.text(0.5, 0.5, 'Không có dữ liệu I.', ha='center', fontsize=12)
+                ax.text(
+                    0.5,
+                    0.5,
+                    'Không có dữ liệu I.' if lang == 'vi' else 'No infected (I) data.',
+                    ha='center',
+                    fontsize=12,
+                )
             _save_fig_pdf(pdf, fig)
         except Exception as e:
             logger.warning('PDF comparison chart skipped: %s', e)
@@ -663,5 +675,8 @@ def build_sir_comparison_pdf_bytes(
     buf.seek(0)
     data = buf.getvalue()
     if not data.startswith(b'%PDF'):
-        raise RuntimeError('Tạo PDF thất bại (dữ liệu không hợp lệ).')
+        msg = 'Tạo PDF thất bại (dữ liệu không hợp lệ).'
+        if lang == 'en':
+            msg = 'PDF generation failed (invalid data).'
+        raise RuntimeError(msg)
     return data

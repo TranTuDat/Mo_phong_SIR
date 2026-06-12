@@ -47,6 +47,24 @@
     setTimeout(() => el.remove(), ms);
   }
 
+  function invalidatePageCaches(outputDir) {
+    if (global.MauSessionCache) {
+      if (outputDir) global.MauSessionCache.invalidate(outputDir);
+      else global.MauSessionCache.invalidateAll();
+    }
+  }
+
+  async function fetchSummaryCached(force) {
+    const out = getActiveOutputDir();
+    if (!force && global.MauSessionCache) {
+      const cached = global.MauSessionCache.get(global.MauSessionCache.KIND.SUMMARY, out);
+      if (cached) return cached;
+    }
+    const data = await fetchJson('/api/summary');
+    global.MauSessionCache?.set(global.MauSessionCache.KIND.SUMMARY, out, data);
+    return data;
+  }
+
   async function fetchJson(path, options) {
     const res = await fetch(withOutputDir(path), options);
     let body = {};
@@ -110,10 +128,11 @@
         body: JSON.stringify(payload),
       });
       const folderName = outputFolderNameFromApi(data.output_folder);
+      invalidatePageCaches();
       if (folderName) setActiveOutputDir(folderName);
       closeModal();
       toast('Tạo dữ liệu thành công.');
-      await refreshSideStats();
+      await refreshSideStats(true);
       if (typeof onDataReady === 'function') await onDataReady();
       if (typeof global.onSharedDataReady === 'function') await global.onSharedDataReady();
     } catch (e) {
@@ -137,10 +156,11 @@
     try {
       const data = await fetchJson('/api/upload-data', { method: 'POST', body: fd });
       const folderName = outputFolderNameFromApi(data.output_folder);
+      invalidatePageCaches();
       if (folderName) setActiveOutputDir(folderName);
       closeModal();
       toast('Tải lên thành công.');
-      await refreshSideStats();
+      await refreshSideStats(true);
       if (typeof onDataReady === 'function') await onDataReady();
       if (typeof global.onSharedDataReady === 'function') await global.onSharedDataReady();
     } catch (e) {
@@ -179,7 +199,8 @@
       if (sim > 0) msg += ` Xóa ${sim} nhóm kết quả mô phỏng.`;
       if (n === 0 && sim === 0) msg = 'Không có output hoặc mô phỏng cũ để xóa.';
       toast(msg);
-      await refreshSideStats();
+      invalidatePageCaches();
+      await refreshSideStats(true);
       if (typeof onDataReady === 'function') await onDataReady();
       if (typeof global.onSharedDataReady === 'function') await global.onSharedDataReady();
     } catch (e) {
@@ -192,9 +213,9 @@
     }
   }
 
-  async function refreshSideStats() {
+  async function refreshSideStats(force) {
     try {
-      const data = await fetchJson('/api/graph?refresh=0');
+      const data = await fetchSummaryCached(!!force);
       const ready = data.ready !== false && (Number(data.nodes) || 0) > 0;
       const set = (id, v) => {
         const el = document.getElementById(id);
@@ -272,10 +293,12 @@
         toast('Chọn một output có sẵn.');
         return;
       }
+      const prev = getActiveOutputDir();
       setActiveOutputDir(v);
+      if (prev && prev !== v) invalidatePageCaches(prev);
       closeModal();
       toast('Đã chọn bộ dữ liệu cũ.');
-      await refreshSideStats();
+      await refreshSideStats(true);
       if (typeof onDataReady === 'function') await onDataReady();
       if (typeof global.onSharedDataReady === 'function') await global.onSharedDataReady();
     });
@@ -370,10 +393,13 @@
     openModal,
     closeModal,
     refreshSideStats,
+    fetchSummaryCached,
+    invalidatePageCaches,
     cleanupOldOutputs,
     ROUTES,
     getActiveOutputDir,
     setActiveOutputDir,
     withOutputDir,
+    fetchJson,
   };
 })(typeof window !== 'undefined' ? window : global);

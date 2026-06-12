@@ -1911,6 +1911,8 @@ def build_node_payload(
     medium_ids = {
         int(x) for x in ranked_df.iloc[prominent_n : prominent_n + medium_n]['id']
     }
+    bt_q75 = float(info['betweenness'].fillna(0).quantile(0.75))
+    deg_q70 = float(info['degree'].fillna(0).quantile(0.7))
     spotlight_take = max(5, min(8, len(info)))
     spotlight_ids = prominent_ids
     w_min = float(w_series.min()) if len(w_series) else 0.0
@@ -1997,10 +1999,16 @@ def build_node_payload(
         x_norm = float((pos[0] + 1) / 2)
         y_norm = float((pos[1] + 1) / 2)
 
+        role_key = node_role_key(
+            float(row.get('betweenness', 0) or 0),
+            float(row.get('degree', 0) or 0),
+            bt_q75=bt_q75,
+            deg_q70=deg_q70,
+        )
         payload.append({
             'id': node_id,
             'name': str(row.get('name', f'User {node_id}')),
-            'role': 'Nút trung gian' if row.get('betweenness', 0) >= info['betweenness'].quantile(0.75) else 'Nút lan truyền' if row.get('degree', 0) >= info['degree'].quantile(0.7) else 'Quan sát viên',
+            'role_key': role_key,
             'degree': deg,
             'degree_metric': float(row.get('degree', 0) or 0),
             'betweenness': float(row.get('betweenness', 0)),
@@ -2078,8 +2086,8 @@ def _nodes_metrics_rows(users: pd.DataFrame, metrics: pd.DataFrame, graph: nx.Gr
 
     role_arr = np.where(
         bt >= bt_q75,
-        'Nút trung gian',
-        np.where(deg_c >= deg_q70, 'Nút lan truyền', 'Quan sát viên'),
+        'bridge',
+        np.where(deg_c >= deg_q70, 'spreader', 'observer'),
     )
     if 'name' in info.columns:
         names = info['name'].fillna('').astype(str)
@@ -2091,7 +2099,7 @@ def _nodes_metrics_rows(users: pd.DataFrame, metrics: pd.DataFrame, graph: nx.Gr
         {
             'id': int(nid),
             'name': str(nm),
-            'role': str(role),
+            'role_key': str(role),
             'degree': float(deg_g),
             'degree_metric': float(deg_m),
             'betweenness': float(b),
@@ -2121,6 +2129,21 @@ def _top_nodes_payload(users: pd.DataFrame, metrics: pd.DataFrame, graph: nx.Gra
     rows = _nodes_metrics_rows(users, metrics, graph)
     rows.sort(key=lambda x: x['risk_score'], reverse=True)
     return rows[:limit]
+
+
+def node_role_key(
+    betweenness: float,
+    degree: float,
+    *,
+    bt_q75: float,
+    deg_q70: float,
+) -> str:
+    """Mã vai trò nút (dịch phía client qua i18n roles.*)."""
+    if betweenness >= bt_q75:
+        return 'bridge'
+    if degree >= deg_q70:
+        return 'spreader'
+    return 'observer'
 
 
 def classify_risk_from_metrics(bt: float, dg: float, ev: float) -> str:
@@ -3063,7 +3086,8 @@ def _sir_export_pdf_response(
     recommendations: Optional[dict] = None,
 ):
     if not pure and not dynamic_runs:
-        return jsonify({'error': 'Chưa có kết quả mô phỏng để xuất.'}), 400
+        err = 'No simulation results to export.' if lang == 'en' else 'Chưa có kết quả mô phỏng để xuất.'
+        return jsonify({'error': err}), 400
     pdf_bytes = build_sir_comparison_pdf_bytes(
         output_folder=folder_label,
         pure=pure,
@@ -3073,7 +3097,8 @@ def _sir_export_pdf_response(
     )
     stamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     safe_name = ''.join(c if c.isalnum() or c in '-_' else '_' for c in folder_label)[:80]
-    filename = f'sir_bao_cao_{safe_name}_{stamp}.pdf'
+    prefix = 'sir_report' if lang == 'en' else 'sir_bao_cao'
+    filename = f'{prefix}_{safe_name}_{stamp}.pdf'
     return send_file(
         BytesIO(pdf_bytes),
         mimetype='application/pdf',

@@ -2,19 +2,31 @@
  * Trang gợi ý can thiệp /recommendations
  */
 (function () {
-  const STRATEGY_META = {
-    betweenness: { vi: 'Betweenness', sub: 'Trung gian (cầu nối)', en: 'Betweenness' },
-    degree: { vi: 'Degree', sub: 'Bậc cao (kết nối nhiều)', en: 'Degree' },
-    eigenvector: { vi: 'Eigenvector', sub: 'Ảnh hưởng lan truyền', en: 'Eigenvector' },
-    pagerank: { vi: 'PageRank', sub: 'Ảnh hưởng lan truyền (PR)', en: 'PageRank' },
+  const STRATEGY_TITLES = {
+    betweenness: 'Betweenness',
+    degree: 'Degree',
+    eigenvector: 'Eigenvector',
+    pagerank: 'PageRank',
+    random: 'Random',
   };
+
+  const STRATEGY_SUB_KEYS = {
+    betweenness: 'rec.stratSubBetweenness',
+    degree: 'rec.stratSubDegree',
+    eigenvector: 'rec.stratSubEigenvector',
+    pagerank: 'rec.stratSubPagerank',
+    random: 'rec.stratSubRandom',
+  };
+
+  let lastAnalysisData = null;
 
   function getLang() {
     return window.I18N && window.I18N.getLang ? window.I18N.getLang() : 'vi';
   }
 
   const VI = {
-    'rec.statusOk': 'Đã mô phỏng',
+    'rec.statusOk': 'Có kết quả',
+    'rec.statusSimulated': 'Đã mô phỏng',
     'rec.statusMissing': 'Chưa chạy',
     'rec.statusWinner': 'Đề xuất',
     'rec.winnerNone': 'Chưa có đề xuất — chạy mô phỏng SIR + can thiệp trước.',
@@ -49,10 +61,11 @@
   }
 
   function strategyLabel(key) {
-    const meta = STRATEGY_META[key] || { vi: key, sub: '', en: key };
-    const lang = getLang();
-    if (lang === 'en') return { title: meta.en, sub: meta.sub };
-    return { title: meta.vi, sub: meta.sub };
+    const k = String(key || '').toLowerCase();
+    return {
+      title: STRATEGY_TITLES[k] || key || '—',
+      sub: t(STRATEGY_SUB_KEYS[k] || ''),
+    };
   }
 
   function escapeHtml(s) {
@@ -173,7 +186,7 @@
     let badgeCell = '';
     if (showBadge) {
       const badgeClass = isWinner ? 'winner' : 'ok';
-      const badgeText = isWinner ? t('rec.statusWinner') : t('rec.statusOk');
+      const badgeText = isWinner ? t('rec.statusWinner') : t('rec.statusSimulated');
       badgeCell = `<td><span class="rec-badge ${badgeClass}">${badgeText}</span></td>`;
     }
 
@@ -229,7 +242,7 @@
     const lbl = strategyLabel(win.strategy);
     const day = win.intervention_day != null ? win.intervention_day : '—';
     const k = win.top_k != null ? win.top_k : '—';
-    return `${lbl.title} · ngày ${day} · k=${k}`;
+    return t('rec.winnerStrategyLine', { strategy: lbl.title, day, k });
   }
 
   function renderWinnerPanel(win, pureSir) {
@@ -264,7 +277,7 @@
       const titleEl = document.getElementById('recWinnerTitle');
       const sumEl = document.getElementById('recWinnerSummary');
       const hero = document.getElementById('recWinnerHero');
-      if (titleEl) titleEl.textContent = 'Chưa có đề xuất';
+      if (titleEl) titleEl.textContent = t('rec.winnerEmptyTitle');
       if (sumEl) sumEl.textContent = t('rec.winnerNone');
       if (hero) hero.classList.add('rec-winner-empty');
     }
@@ -293,6 +306,7 @@
   }
 
   function renderAnalysis(data) {
+    lastAnalysisData = data;
     setText('recOutputFolder', data.output_folder || '—');
 
     const pure = data.pure_sir;
@@ -310,26 +324,41 @@
     renderWinnerPanel(win, pureSir);
   }
 
-  async function loadAnalysis() {
+  async function loadAnalysis(force) {
+    const cache = window.MauSessionCache;
+    const out = window.MauShell?.getActiveOutputDir?.() || '';
+    if (!force && cache) {
+      const cached = cache.get(cache.KIND.RECOMMENDATIONS, out);
+      if (cached) {
+        renderAnalysis(cached);
+        const hasRuns = (cached.runs || []).some((r) => r.available);
+        const hasStrat = (cached.strategies || []).some((s) => s.available);
+        if (!hasRuns && !hasStrat) {
+          setStatus(cached.hint || t('rec.hintNoIntervention'), 'info');
+        } else {
+          setStatus('', 'info');
+        }
+        return;
+      }
+    }
+
     setStatus(t('rec.loading'), 'loading');
     try {
-      const summary = await fetchJson('/api/summary');
+      const summary = window.MauShell?.fetchSummaryCached
+        ? await window.MauShell.fetchSummaryCached(!!force)
+        : await fetchJson('/api/summary');
       const folder = summary.output_folder;
       const data = await fetchJson(
         `/api/intervention-recommendations${folder ? `?output_dir=${encodeURIComponent(folder)}` : ''}`
       );
+      cache?.set(cache.KIND.RECOMMENDATIONS, out || folder || '', data);
       renderAnalysis(data);
       const hasRuns = (data.runs || []).some((r) => r.available);
       const hasStrat = (data.strategies || []).some((s) => s.available);
       if (data.warning) {
         setStatus(data.warning, 'error');
       } else if (!hasRuns && !hasStrat) {
-        setStatus(
-          data.hint ||
-            summary.hint ||
-            'Chưa có kết quả can thiệp. Vào Phân tích mạng → chạy SIR + can thiệp.',
-          'info'
-        );
+        setStatus(data.hint || summary.hint || t('rec.hintNoIntervention'), 'info');
       } else {
         setStatus('', 'info');
       }
@@ -340,9 +369,13 @@
 
   function init() {
     window.onSharedDataReady = () => loadAnalysis();
-    window.MauShell?.init({ page: 'recommendations', onDataReady: loadAnalysis });
-    document.getElementById('btnAnalyze')?.addEventListener('click', loadAnalysis);
-    window.addEventListener('app:langchange', () => loadAnalysis());
+    window.MauShell?.init({ page: 'recommendations', onDataReady: () => loadAnalysis(true) });
+    document.getElementById('btnAnalyze')?.addEventListener('click', () => loadAnalysis(true));
+    window.addEventListener('app:langchange', () => {
+      window.I18N?.applyI18n?.();
+      if (lastAnalysisData) renderAnalysis(lastAnalysisData);
+      else loadAnalysis();
+    });
     loadAnalysis();
   }
 

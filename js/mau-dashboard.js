@@ -8,6 +8,39 @@
 
   let graphData = null;
   let selectedNodeId = null;
+  let lastRecApi = null;
+
+  const LEGACY_ROLE_KEYS = {
+    'Nút trung gian': 'bridge',
+    'Nút lan truyền': 'spreader',
+    'Quan sát viên': 'observer',
+    'Quan sát': 'observer',
+    'Bridge node': 'bridge',
+    'Spreader node': 'spreader',
+    Observer: 'observer',
+  };
+
+  function t(key, vars) {
+    if (window.I18N && window.I18N.t) return window.I18N.t(key, vars);
+    return key;
+  }
+
+  function roleKeyFromNode(node) {
+    if (!node) return '';
+    if (node.role_key) return String(node.role_key);
+    return LEGACY_ROLE_KEYS[node.role] || '';
+  }
+
+  function translateRole(node) {
+    const key = roleKeyFromNode(node);
+    if (key) return t(`roles.${key}`);
+    return node?.role || '—';
+  }
+
+  function roleDesc(key) {
+    if (!key) return '';
+    return t(`roles.${key}Desc`);
+  }
 
   function formatNumber(n) {
     const x = Number(n);
@@ -32,10 +65,9 @@
   }
 
   function riskLabelVi(risk) {
-    if (risk === 'High') return 'Nguy cơ cao';
-    if (risk === 'Medium') return 'Nguy cơ trung bình';
-    if (risk === 'Low') return 'Nguy cơ thấp';
-    return 'Chưa xác định';
+    const map = { High: 'risk.High', Medium: 'risk.Medium', Low: 'risk.Low', Unknown: 'risk.Unknown' };
+    const k = map[risk];
+    return k ? t(k) : t('risk.Unknown');
   }
 
   function badgeClass(risk) {
@@ -136,7 +168,7 @@
       tr.innerHTML = `
         <td>${i + 1}</td>
         <td>${node.name}</td>
-        <td>${node.role || '—'}</td>
+        <td>${translateRole(node)}</td>
         <td>${displayDegree(node)}</td>
         <td>${formatCentrality(node, 'betweenness')}</td>
         <td>${formatCentrality(node, 'eigenvector')}</td>
@@ -172,11 +204,16 @@
       badge.textContent = riskLabelVi(node.risk);
       badge.className = `account-badge ${badgeClass(node.risk)}`.trim();
     }
-    if (roleEl) roleEl.textContent = node.role || '—';
+    if (roleEl) roleEl.textContent = translateRole(node);
     if (descEl) {
-      descEl.textContent = node.cluster
-        ? `Kết nối nhiều nhóm cộng đồng (${node.cluster}), có tần suất chia sẻ cao.`
-        : 'Chọn nút trên bản đồ để xem chi tiết.';
+      const rk = roleKeyFromNode(node);
+      if (node.cluster) {
+        descEl.textContent = t('roles.profileClusterDesc', { cluster: node.cluster });
+      } else if (rk) {
+        descEl.textContent = roleDesc(rk);
+      } else {
+        descEl.textContent = t('roles.profilePickNode');
+      }
     }
     const set = (id, v) => {
       const el = document.getElementById(id);
@@ -248,47 +285,57 @@
     if (top) {
       items.push({
         icon: 'green',
-        title: `Ưu tiên giám sát ${top.name}`,
-        desc: `${top.role || 'Nút trung gian'} kết nối nhiều cụm, có ảnh hưởng lớn.`,
+        title: t('roles.recMonitorTitle', { name: top.name }),
+        desc: t('roles.recMonitorDesc', { role: translateRole(top) }),
         p: 'p1',
-        pl: 'Ưu tiên 1',
+        pl: t('rec.p1'),
       });
     }
     if (c0) {
       items.push({
         icon: 'red',
-        title: `Tác động vào cụm ${c0.name}`,
-        desc: 'Cụm có mức độ tương tác cao, nguy cơ lan truyền lớn.',
+        title: t('roles.recClusterTitle', { name: c0.name }),
+        desc: t('roles.recClusterDesc'),
         p: 'p2',
-        pl: 'Ưu tiên 2',
+        pl: t('rec.p2'),
       });
     }
     if (n2 && n3) {
       items.push({
         icon: 'blue',
-        title: `Theo dõi ${n2.name} và ${n3.name}`,
-        desc: 'Lan truyền mạnh, nằm trong cụm nguy cơ.',
+        title: t('roles.recWatchTitle', { name1: n2.name, name2: n3.name }),
+        desc: t('roles.recWatchDesc'),
         p: 'p3',
-        pl: 'Ưu tiên 3',
+        pl: t('rec.p3'),
       });
     } else if (api?.winner?.strategy) {
       const w = api.winner;
+      const langEn = window.I18N?.getLang?.() === 'en';
       const kPart = w.top_k != null ? `, top-${w.top_k}` : '';
-      const dPart = w.intervention_day != null ? `, ngày ${w.intervention_day}` : '';
+      const dPart =
+        w.intervention_day != null
+          ? langEn
+            ? `, day ${w.intervention_day}`
+            : `, ngày ${w.intervention_day}`
+          : '';
       items.push({
         icon: 'blue',
-        title: `Can thiệp: ${w.strategy}${dPart}${kPart}`,
-        desc: `Đỉnh I = ${w.peak_infected ?? '—'} — cân nhắc miễn nhiễm động.`,
+        title: t('roles.recInterventionTitle', {
+          strategy: w.strategy,
+          day: dPart,
+          k: kPart,
+        }),
+        desc: t('roles.recInterventionDesc', { peak: w.peak_infected ?? '—' }),
         p: 'p3',
-        pl: 'Ưu tiên 3',
+        pl: t('rec.p3'),
       });
     }
     items.push({
       icon: 'purple',
-      title: 'Tăng cường nội dung phản bác',
-      desc: 'Tại cụm lớn và các nút trung gian trọng yếu.',
+      title: t('roles.recCounterTitle'),
+      desc: t('roles.recCounterDesc'),
       p: 'p4',
-      pl: 'Ưu tiên 4',
+      pl: t('rec.p4'),
     });
 
     list.innerHTML = items
@@ -328,37 +375,71 @@
     setTimeout(() => el.remove(), ms);
   }
 
-  async function loadDashboard() {
+  function applyDashboardPayload(data) {
+    graphData = data;
+    if (data.ready === false && data.hint) toast(data.hint);
+    normalizeRiskScores();
+    selectedNodeId = data.top_nodes?.[0]?.id ?? data.nodes_data?.[0]?.id ?? null;
+    applySummary(data);
+    renderTopNodes();
+    renderClusters(data.clusters || []);
+    renderProfile(
+      selectedNodeId != null
+        ? data.nodes_data?.find((n) => n.id === selectedNodeId)
+        : null
+    );
+    if (window.MauGraph) {
+      window.MauGraph.setOnNodeSelect((id) => selectNode(id));
+      window.MauGraph.loadFromPayload(data);
+      window.MauGraph.selectNodeById(selectedNodeId);
+    }
+  }
+
+  async function loadRecommendationsForDashboard(outputFolder, force) {
+    const cache = window.MauSessionCache;
+    const out = outputFolder || window.MauShell?.getActiveOutputDir?.() || '';
+    if (!force && cache) {
+      const cached = cache.get(cache.KIND.RECOMMENDATIONS, out);
+      if (cached) {
+        lastRecApi = cached;
+        renderRecommendations(cached);
+        return;
+      }
+    }
+    let recApi = null;
     try {
-      const data = await fetchJson('/api/graph?refresh=1');
-      graphData = data;
-      if (data.ready === false && data.hint) toast(data.hint);
-      normalizeRiskScores();
-      selectedNodeId = data.top_nodes?.[0]?.id ?? data.nodes_data?.[0]?.id ?? null;
-      applySummary(data);
-      renderTopNodes();
-      renderClusters(data.clusters || []);
-      renderProfile(
-        selectedNodeId != null
-          ? data.nodes_data?.find((n) => n.id === selectedNodeId)
-          : null
-      );
-      let recApi = null;
-      try {
-        const folder = data.output_folder;
-        const url = folder
-          ? `/api/intervention-recommendations?output_dir=${encodeURIComponent(folder)}`
-          : '/api/intervention-recommendations';
-        recApi = await fetchJson(url);
-      } catch {
-        /* optional */
+      const url = outputFolder
+        ? `/api/intervention-recommendations?output_dir=${encodeURIComponent(outputFolder)}`
+        : '/api/intervention-recommendations';
+      recApi = await fetchJson(url);
+      cache?.set(cache.KIND.RECOMMENDATIONS, out, recApi);
+    } catch {
+      /* optional */
+    }
+    lastRecApi = recApi;
+    renderRecommendations(recApi);
+  }
+
+  async function loadDashboard(options = {}) {
+    const force = options.force === true;
+    const out = window.MauShell?.getActiveOutputDir?.() || '';
+    const cache = window.MauSessionCache;
+
+    try {
+      if (!force && cache) {
+        const cached = cache.get(cache.KIND.GRAPH, out);
+        if (cached && (cached.nodes_data?.length || Number(cached.nodes) > 0)) {
+          applyDashboardPayload(cached);
+          await loadRecommendationsForDashboard(cached.output_folder, false);
+          return;
+        }
       }
-      renderRecommendations(recApi);
-      if (window.MauGraph) {
-        window.MauGraph.setOnNodeSelect((id) => selectNode(id));
-        window.MauGraph.loadFromPayload(data);
-        window.MauGraph.selectNodeById(selectedNodeId);
-      }
+
+      const refresh = force ? '1' : '0';
+      const data = await fetchJson(`/api/graph?refresh=${refresh}`);
+      cache?.set(cache.KIND.GRAPH, out, data);
+      applyDashboardPayload(data);
+      await loadRecommendationsForDashboard(data.output_folder, force);
     } catch (e) {
       toast('Không tải được dữ liệu: ' + e.message, 5000);
       if (window.MauGraph) window.MauGraph.initGraph();
@@ -368,11 +449,11 @@
   function init() {
     const shell = window.MauShell?.init({
       page: 'overview',
-      onDataReady: loadDashboard,
+      onDataReady: () => loadDashboard({ force: true }),
     });
     const toastFn = shell?.toast || toast;
 
-    document.getElementById('refreshGraph')?.addEventListener('click', loadDashboard);
+    document.getElementById('refreshGraph')?.addEventListener('click', () => loadDashboard({ force: true }));
     document.getElementById('zoomIn')?.addEventListener('click', () => window.MauGraph?.zoomIn());
     document.getElementById('zoomOut')?.addEventListener('click', () => window.MauGraph?.zoomOut());
     document.getElementById('labelToggle')?.addEventListener('change', () => {
@@ -384,6 +465,17 @@
     });
 
     if (window.MauGraph) window.MauGraph.initGraph();
+    window.addEventListener('app:langchange', () => {
+      if (!graphData) return;
+      renderTopNodes();
+      renderClusters(graphData.clusters || []);
+      renderProfile(
+        selectedNodeId != null
+          ? graphData.nodes_data?.find((n) => n.id === selectedNodeId)
+          : null
+      );
+      renderRecommendations(lastRecApi);
+    });
     loadDashboard().catch((e) => toastFn('Không tải được dữ liệu: ' + e.message, 5000));
   }
 
